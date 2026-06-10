@@ -1,0 +1,54 @@
+[project]
+name = "teutonic"
+version = "0.1.0"
+description = "Holy pretraining incentives — Bittensor SN3 (Teutonic) validator + miner."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "bittensor>=10.3,<11",
+    "boto3",
+    "minio",
+    "httpx",
+    "numpy",
+    "scipy",
+    "hippius-hub",
+    "huggingface-hub",
+    "hf_transfer>=0.1",
+    "safetensors",
+    "torch",
+    "transformers",
+    "fastapi",
+    "uvicorn",
+    "pydantic",
+    "pyarrow",
+    "accelerate",
+]
+
+[project.optional-dependencies]
+dev = ["ruff"]
+
+[project.urls]
+Homepage = "https://teutonic.ai"
+Repository = "https://github.com/unarbos/teutonic"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["archs", "eval"]
+only-include = [
+    "validator.py",
+    "miner.py",
+    "eval_server.py",
+    "model_store.py",
+    "chain_config.py",
+    "chain.toml",
+    "archs",
+    "eval",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

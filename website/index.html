@@ -1,0 +1,1997 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
+<meta name="build" content="__BUILD_ID__">
+<title>Teuton</title>
+<link rel="icon" type="image/x-icon" href="favicon.ico">
+<link rel="icon" type="image/png" href="favicon.png">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
+
+:root {
+    --bg: #000;
+    --paper: #fff;
+    --ink: #000;
+    --ink-inv: #fff;
+    --ink-muted: #999;
+    --border: 1px dashed #000;
+    --border-faint: 1px dotted rgba(0,0,0,0.15);
+    --font: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --saw: 8px;
+}
+
+[data-theme="dark"] {
+    --paper: #111;
+    --ink: #ddd;
+    --ink-inv: #111;
+    --ink-muted: #777;
+    --border: 1px dashed #ddd;
+    --border-faint: 1px dotted rgba(255,255,255,0.15);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    background: var(--paper);
+    color: var(--ink);
+    font: 13px/1.5 var(--font);
+    display: flex;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 0;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+}
+
+.page {
+    width: 100%;
+    max-width: 1400px;
+    background: var(--paper);
+    position: relative;
+    padding: 32px 48px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.page::before, .page::after { display: none; }
+
+.section-label {
+    text-transform: uppercase;
+    font-weight: bold;
+    font-size: 11px;
+    border-bottom: var(--border);
+    padding-bottom: 4px;
+    margin-bottom: 8px;
+}
+
+.chart-wrap {
+    width: 100%;
+    aspect-ratio: 5 / 2;
+    position: relative;
+}
+.chart-wrap svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+.chart-meta {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    text-transform: uppercase;
+    margin-top: 4px;
+}
+
+.bench-panel {
+    border: var(--border);
+    padding: 10px;
+    position: relative;
+}
+.bench-panel::before {
+    content: "";
+    position: absolute;
+    inset: 3px;
+    border: var(--border-faint);
+    pointer-events: none;
+}
+.bench-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 11px;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+    position: relative;
+    z-index: 1;
+}
+.bench-tools {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    min-width: 0;
+}
+.bench-history-toggle {
+    background: none;
+    border: var(--border);
+    color: var(--ink);
+    font: 600 10px/1 var(--font);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 3px 8px;
+    cursor: pointer;
+}
+#bench-meta {
+    text-align: right;
+    overflow-wrap: anywhere;
+}
+.bench-grid {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 8px;
+    position: relative;
+    z-index: 1;
+}
+.bench-card {
+    border: var(--border);
+    padding: 8px;
+    min-height: 76px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    background: var(--paper);
+}
+.bench-card[data-status="completed"] {
+    background:
+        linear-gradient(135deg, rgba(0,0,0,0.05) 0 25%, transparent 25% 50%, rgba(0,0,0,0.05) 50% 75%, transparent 75% 100%);
+    background-size: 8px 8px;
+}
+[data-theme="dark"] .bench-card[data-status="completed"] {
+    background:
+        linear-gradient(135deg, rgba(255,255,255,0.05) 0 25%, transparent 25% 50%, rgba(255,255,255,0.05) 50% 75%, transparent 75% 100%);
+    background-size: 8px 8px;
+}
+.bench-name {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.bench-score {
+    font-family: "Space Mono", monospace;
+    font-size: clamp(18px, 2.6vw, 30px);
+    line-height: 1.1;
+    margin: 6px 0;
+}
+.bench-status {
+    font-size: 10px;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+    display: flex;
+    justify-content: space-between;
+    gap: 6px;
+}
+.bench-card[data-status="pending"] .bench-score,
+.bench-card[data-status="running"] .bench-score {
+    color: var(--ink-muted);
+}
+.bench-error {
+    color: #c22;
+}
+.bench-history {
+    border-top: var(--border-faint);
+    margin-top: 10px;
+    padding-top: 10px;
+    position: relative;
+    z-index: 1;
+    overflow-x: auto;
+}
+.bench-history[hidden] {
+    display: none;
+}
+.bench-history table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 10px;
+    text-transform: uppercase;
+    table-layout: auto;
+}
+.bench-history th,
+.bench-history td {
+    border-bottom: var(--border-faint);
+    padding: 5px 6px;
+    text-align: right;
+    overflow: visible;
+    text-overflow: clip;
+    white-space: nowrap;
+}
+.bench-history th:first-child,
+.bench-history td:first-child,
+.bench-history th:nth-child(2),
+.bench-history td:nth-child(2) {
+    text-align: left;
+}
+.bench-history-empty {
+    color: var(--ink-muted);
+    font-size: 10px;
+    text-transform: uppercase;
+}
+.bench-spark-grid {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(96px, 1fr));
+    gap: 6px;
+    margin-bottom: 10px;
+}
+.bench-spark {
+    border: var(--border-faint);
+    padding: 5px;
+    background: rgba(0,0,0,0.015);
+}
+[data-theme="dark"] .bench-spark {
+    background: rgba(255,255,255,0.025);
+}
+.bench-spark-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 6px;
+    font-size: 9px;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+}
+.bench-spark-head strong {
+    color: var(--ink);
+    font-weight: 700;
+}
+.bench-spark svg {
+    display: block;
+    width: 100%;
+    height: 32px;
+    margin-top: 3px;
+}
+.bench-history-pager {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 8px 0 6px;
+    font-size: 10px;
+    text-transform: uppercase;
+}
+.bench-history-pager button,
+.bench-history-pager select {
+    background: none;
+    border: var(--border);
+    color: var(--ink);
+    font: 600 10px/1 var(--font);
+    text-transform: uppercase;
+    padding: 3px 7px;
+}
+.bench-history-pager button {
+    cursor: pointer;
+}
+.bench-history-pager button:disabled {
+    cursor: not-allowed;
+    opacity: 0.35;
+}
+.bench-history-pager-left,
+.bench-history-pager-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.duel-bar-wrap {
+    border: 1px solid var(--ink);
+    height: 14px;
+    position: relative;
+    overflow: hidden;
+}
+.duel-bar {
+    height: 100%;
+    background: var(--ink);
+    transition: width .4s ease;
+}
+.duel-info {
+    font-size: 12px;
+    display: flex;
+    justify-content: space-between;
+    margin-top: 4px;
+}
+.duel-info span { min-width: 120px; }
+.duel-info span:last-child { text-align: right; }
+.duel-idle .duel-bar-wrap { opacity: 0.3; }
+
+.scroll-box {
+    overflow-y: auto;
+    scrollbar-width: thin;
+}
+.scroll-box::-webkit-scrollbar { width: 4px; }
+.scroll-box::-webkit-scrollbar-thumb { background: var(--ink); }
+.scroll-queue { max-height: 200px; }
+.scroll-king-chain { max-height: 240px; }
+.scroll-hist { max-height: 60vh; }
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    table-layout: fixed;
+}
+th {
+    text-transform: uppercase;
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-align: left;
+    padding: 4px 0;
+    border-bottom: var(--border);
+    background: var(--paper);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+td {
+    padding: 3px 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+tr { border-bottom: var(--border-faint); }
+tr:hover td {
+    background: var(--ink);
+    color: var(--ink-inv);
+    cursor: crosshair;
+}
+tr:hover td a { color: var(--ink-inv) !important; }
+th:last-child, td:last-child { text-align: right; }
+
+[data-theme="dark"] .logo-img { filter: invert(1); }
+
+#theme-toggle {
+    background: none;
+    border: var(--border);
+    color: var(--ink);
+    font: 11px/1 var(--font);
+    font-weight: 600;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    cursor: pointer;
+    letter-spacing: 0.05em;
+}
+#theme-toggle:hover, #chart-mode-toggle:hover, #smooth-mode-toggle:hover, #scale-focus-toggle:hover {
+    background: var(--ink);
+    color: var(--ink-inv);
+}
+
+#smooth-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 80px;
+    height: 4px;
+    background: var(--ink-muted);
+    outline: none;
+    margin: 0 6px;
+    vertical-align: middle;
+    cursor: pointer;
+}
+#smooth-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 10px;
+    height: 10px;
+    background: var(--ink);
+    border: none;
+    cursor: pointer;
+}
+#smooth-slider::-moz-range-thumb {
+    width: 10px;
+    height: 10px;
+    background: var(--ink);
+    border: none;
+    cursor: pointer;
+}
+
+@media (max-width: 640px) {
+    .page {
+        padding: 16px 12px;
+        gap: 16px;
+    }
+
+    #top-bar {
+        flex-wrap: wrap;
+        gap: 4px 0;
+        font-size: 11px !important;
+    }
+    #top-bar > span,
+    #top-bar > button {
+        width: 50%;
+    }
+    #top-bar > span:nth-child(even),
+    #top-bar > button {
+        text-align: right;
+    }
+
+    .logo-img {
+        width: 56px !important;
+        height: 56px !important;
+    }
+    .header-title {
+        font-size: 16px !important;
+    }
+
+    .section-label {
+        flex-wrap: wrap;
+        gap: 4px;
+    }
+    .chart-controls {
+        width: 100%;
+        justify-content: flex-end;
+    }
+    #smooth-slider { width: 60px; }
+
+    .chart-wrap { aspect-ratio: 3 / 2; }
+    .bench-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .bench-spark-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .bench-history-pager { align-items: flex-start; flex-direction: column; }
+    .bench-head { flex-direction: column; gap: 2px; }
+    .bench-tools { justify-content: space-between; }
+
+    .scroll-box { overflow-x: auto; }
+    .scroll-hist table,
+    .scroll-queue table {
+        table-layout: auto;
+        min-width: 500px;
+    }
+    .scroll-hist table { min-width: 700px; }
+
+    .scroll-hist th:nth-child(6),
+    .scroll-hist td:nth-child(6),
+    .scroll-hist th:nth-child(8),
+    .scroll-hist td:nth-child(8) {
+        display: none;
+    }
+
+    .duel-info span { min-width: 80px; }
+
+    #last-winner {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 2px 12px;
+    }
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+    <div id="top-bar" style="display:flex;justify-content:space-between;align-items:center;border-bottom:var(--border);padding:6px 0;font-size:12px;text-transform:uppercase;">
+        <span>TAO <b id="tao-price">--</b> <span id="tao-change" style="font-size:10px"></span></span>
+        <span>SN3 ALPHA <b id="alpha-price">--</b></span>
+        <span>SN3 REG <b id="reg-cost">--</b></span>
+        <button id="theme-toggle">DARK</button>
+    </div>
+
+    <div style="text-align:center;margin-bottom:8px;">
+        <img src="favicon.png" alt="Teuton" class="logo-img" style="width:80px;height:80px;margin-bottom:8px;">
+        <div id="chain-name" class="header-title" style="font-size:20px;font-weight:bold;letter-spacing:0.1em;text-transform:uppercase;">Teutonic</div>
+        <div style="font-size:11px;margin-top:4px;display:flex;flex-direction:column;align-items:center;gap:4px;text-transform:uppercase;">
+            <span><span id="king-health" title="King repo status"></span> KING: <a id="king-link-top" href="#" target="_blank" style="color:var(--ink);text-decoration:none;border-bottom:var(--border);">--</a> <span id="king-rev" style="opacity:0.6;"></span></span>
+            <span>GENESIS: <a id="genesis-link" href="#" target="_blank" style="color:var(--ink);text-decoration:none;border-bottom:var(--border);">--</a> <span id="genesis-rev" style="opacity:0.6;"></span></span>
+            <span>VALIDATOR: <a href="https://github.com/unarbos/teutonic" target="_blank" style="color:var(--ink);text-decoration:none;border-bottom:var(--border);">GitHub</a></span>
+            <span id="dataset-line">DATASET: <span id="dataset-name">FINEWEBEDU</span> <a id="dataset-manifest-link" href="https://s3.hippius.com/teutonic-sn3/dataset/finewebedu/manifest.json" target="_blank" style="color:var(--ink);text-decoration:none;border-bottom:var(--border);" title="Dataset manifest for the eval corpus">Manifest</a> <span id="dataset-summary" style="opacity:0.6;"></span></span>
+            <span id="king-reign" style="font-size:10px;opacity:0.5;"></span>
+        </div>
+    </div>
+
+    <div>
+        <div class="section-label" style="display:flex;justify-content:space-between;align-items:center;">
+            <span id="chart-label">Perplexity</span>
+            <span class="chart-controls" style="display:flex;align-items:center;gap:8px;">
+                <label style="font-weight:normal;font-size:11px;display:flex;align-items:center;cursor:default;">SMOOTH<input type="range" id="smooth-slider" min="0" max="1" step="0.05" value="0.35"><span id="smooth-val" style="min-width:1.8em;text-align:right;">0.35</span></label>
+                <button id="smooth-mode-toggle" style="background:none;border:var(--border);color:var(--ink);font:600 11px/1 var(--font);text-transform:uppercase;padding:3px 8px;cursor:pointer;letter-spacing:0.05em;">LOWESS</button>
+                <button id="scale-focus-toggle" style="background:none;border:var(--border);color:var(--ink);font:600 11px/1 var(--font);text-transform:uppercase;padding:3px 8px;cursor:pointer;letter-spacing:0.05em;">KING SCALE</button>
+                <button id="chart-mode-toggle" style="background:none;border:var(--border);color:var(--ink);font:600 11px/1 var(--font);text-transform:uppercase;padding:3px 8px;cursor:pointer;letter-spacing:0.05em;">Loss</button>
+            </span>
+        </div>
+        <div class="chart-wrap">
+            <svg id="chart"></svg>
+        </div>
+        <div class="chart-meta" id="chart-meta">
+            <span>--</span>
+        </div>
+    </div>
+
+    <div class="bench-panel" id="bench-panel">
+        <div class="bench-head">
+            <span>Benchmark Panel</span>
+            <span class="bench-tools"><button id="bench-history-toggle" class="bench-history-toggle" type="button">History</button><span id="bench-meta">Loading benchmark scores...</span></span>
+        </div>
+        <div class="bench-grid" id="bench-grid">
+            <div class="bench-card" data-status="pending">
+                <div class="bench-name">--</div>
+                <div class="bench-score">--</div>
+                <div class="bench-status"><span>loading</span><span>--</span></div>
+            </div>
+        </div>
+        <div class="bench-history" id="bench-history" hidden>
+            <div class="bench-history-empty">Loading benchmark history...</div>
+        </div>
+    </div>
+
+    <div id="duel-section" class="duel-idle">
+        <div class="section-label" id="duel-label">Idle</div>
+        <div class="duel-bar-wrap"><div class="duel-bar" id="duel-bar" style="width:0%"></div></div>
+        <div class="duel-info"><span id="duel-progress">--</span><span id="duel-wr">--</span></div>
+    </div>
+
+    <div>
+        <div class="section-label">King</div>
+        <div id="last-winner" style="font-size:12px;line-height:1.8;min-height:48px;display:flex;flex-wrap:wrap;gap:0 16px;">--</div>
+    </div>
+
+    <div>
+        <div class="section-label">Reigns</div>
+        <div class="scroll-box scroll-king-chain">
+            <table>
+                <thead><tr>
+                    <th>#</th>
+                    <th>Reign</th>
+                    <th>UID</th>
+                    <th>Hotkey</th>
+                    <th>Repo</th>
+                    <th>Weight</th>
+                    <th>&alpha; / hr</th>
+                    <th>$ / hr</th>
+                    <th>Crowned</th>
+                </tr></thead>
+                <tbody id="king-chain"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div>
+        <div class="section-label">Queue</div>
+        <div class="scroll-box scroll-queue">
+            <table>
+                <thead><tr>
+                    <th>UID</th>
+                    <th>Repo</th>
+                    <th>Hotkey</th>
+                    <th>Block</th>
+                    <th>Status</th>
+                </tr></thead>
+                <tbody id="queue"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div>
+        <div class="section-label">History</div>
+        <div class="scroll-box scroll-hist">
+            <table>
+                <thead><tr>
+                    <th>UID</th>
+                    <th>Repo</th>
+                    <th>Hotkey</th>
+                    <th>Verdict</th>
+                    <th>mu_hat</th>
+                    <th>LCB</th>
+                    <th>King Loss</th>
+                    <th>Chall Loss</th>
+                    <th>When</th>
+                </tr></thead>
+                <tbody id="hist"></tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
+
+<script>
+var STORAGE_ENDPOINTS = [
+    "https://us-east-1.hippius.com/teutonic-sn3",
+    "https://eu-central-1.hippius.com/teutonic-sn3",
+    "https://s3.hippius.com/teutonic-sn3"
+];
+var DATASET_MANIFEST_KEY = "dataset/finewebedu/manifest.json";
+var DATA_ENDPOINTS = STORAGE_ENDPOINTS.map(function(base) { return base + "/dashboard.json"; });
+var HTML_ENDPOINTS = STORAGE_ENDPOINTS.map(function(base) { return base + "/index.html"; });
+var DATASET_MANIFEST_ENDPOINTS = STORAGE_ENDPOINTS.map(function(base) { return base + "/" + DATASET_MANIFEST_KEY; });
+var BENCH_ENDPOINTS = STORAGE_ENDPOINTS.map(function(base) { return base + "/king-benchmark-daily/all-kings/latest.json"; });
+var BENCH_INDEX_ENDPOINTS = STORAGE_ENDPOINTS.map(function(base) { return base + "/king-benchmark-daily/all-kings/index.json"; });
+var BENCHMARK_ORDER = [
+    { name: "MMLU", task: "mmlu", fewshot: 5 },
+    { name: "MMLU-Pro", task: "mmlu_pro", fewshot: 5 },
+    { name: "BBH", task: "leaderboard_bbh", fewshot: 3 },
+    { name: "ARC-C", task: "arc_challenge", fewshot: 25 },
+    { name: "TruthfulQA", task: "truthfulqa_mc2", fewshot: 0 },
+    { name: "WinoGrande", task: "winogrande", fewshot: 5 }
+];
+var DATA_URL = DATA_ENDPOINTS[0];
+var DATASET_MANIFEST_URL = DATASET_MANIFEST_ENDPOINTS[0];
+var POLL_MS = 5000;
+var VERSION_CHECK_MS = 60000;
+var BUILD_ID = "__BUILD_ID__";
+var ENDPOINT_CACHE_KEY = "dashboardEndpoint";
+var ENDPOINT_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+var _lastData = null;
+var _lastBenchData = null;
+var _benchHistoryData = null;
+var _benchHistoryOpen = localStorage.getItem("benchHistoryOpen") === "1";
+var _benchHistoryPage = Number(localStorage.getItem("benchHistoryPage") || 0);
+var _benchHistoryPageSize = Number(localStorage.getItem("benchHistoryPageSize") || 5);
+if ([5, 10, 25, 50].indexOf(_benchHistoryPageSize) === -1) _benchHistoryPageSize = 5;
+var _chartMode = localStorage.getItem("chartMode") || "ppl";
+var _smoothMode = localStorage.getItem("smoothMode") || "lowess";
+var _chartScaleFocus = localStorage.getItem("chartScaleFocus") || "king";
+var _datasetManifestPromise = null;
+
+(function initTheme() {
+    var saved = localStorage.getItem("theme");
+    var dark = saved ? saved === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+    document.documentElement.dataset.theme = dark ? "dark" : "light";
+})();
+
+function short(s, n) { return s ? s.slice(0, n || 12) + "\u2026" : "--"; }
+
+function formatBytes(bytes) {
+    if (!bytes || bytes < 0) return "";
+    var units = ["B", "KB", "MB", "GB", "TB"];
+    var idx = 0;
+    var val = bytes;
+    while (val >= 1024 && idx < units.length - 1) {
+        val /= 1024;
+        idx++;
+    }
+    return (val >= 100 || idx === 0 ? val.toFixed(0) : val.toFixed(1)) + " " + units[idx];
+}
+
+function setDatasetManifestLink(url) {
+    if (!url) return;
+    DATASET_MANIFEST_URL = url;
+    var link = document.getElementById("dataset-manifest-link");
+    if (link) link.href = url;
+}
+
+function setDatasetSummary(text) {
+    var el = document.getElementById("dataset-summary");
+    if (!el) return;
+    el.textContent = text ? " " + text.toUpperCase() : "";
+}
+
+function datasetMetaFromPayload(d) {
+    if (d && d.current_eval && d.current_eval.dataset) return d.current_eval.dataset;
+    var hist = d && d.history ? d.history : [];
+    for (var i = 0; i < hist.length; i++) {
+        if (hist[i] && hist[i].dataset) return hist[i].dataset;
+    }
+    return null;
+}
+
+function setDatasetSummaryFromMeta(meta) {
+    if (!meta) return false;
+    var parts = [];
+    if (meta.mode) parts.push(meta.mode.replace(/_/g, " "));
+    if (meta.sampled != null && meta.total_windows != null) {
+        parts.push(meta.sampled + " / " + meta.total_windows + " windows");
+    } else if (meta.sampled != null) {
+        parts.push(meta.sampled + " windows");
+    }
+    if (meta.total_shards != null) parts.push(meta.total_shards + " cached shards");
+    if (meta.tokenizer) parts.push(meta.tokenizer);
+    if (!parts.length) return false;
+    setDatasetSummary(parts.join(" · "));
+    return true;
+}
+
+function setDatasetSummaryFromManifest(manifest) {
+    if (!manifest) return false;
+    var items = manifest.files || manifest.shards || [];
+    var parquetCount = 0;
+    var totalBytes = 0;
+    for (var i = 0; i < items.length; i++) {
+        var item = items[i] || {};
+        var key = item.dest_key || item.key || "";
+        if (key.slice(-8) !== ".parquet") continue;
+        parquetCount++;
+        totalBytes += Number(item.size_bytes || 0);
+    }
+    var parts = [];
+    if (parquetCount) parts.push(parquetCount + " parquet shards");
+    if (totalBytes > 0) parts.push(formatBytes(totalBytes));
+    var stamp = manifest.generated_at || manifest.updated_at || manifest.created_at || manifest.timestamp;
+    if (stamp) parts.push("updated " + timeAgo(stamp));
+    if (!parts.length) return false;
+    setDatasetSummary(parts.join(" · "));
+    return true;
+}
+
+async function loadDatasetManifest() {
+    if (_datasetManifestPromise) return _datasetManifestPromise;
+    _datasetManifestPromise = new Promise(function(resolve) {
+        var finished = false;
+        var failures = 0;
+        DATASET_MANIFEST_ENDPOINTS.forEach(function(url) {
+            fetch(url + "?t=" + Date.now())
+                .then(function(r) {
+                    if (!r.ok) throw new Error("HTTP " + r.status);
+                    return r.json().then(function(data) { return { url: url, data: data }; });
+                })
+                .then(function(result) {
+                    if (finished) return;
+                    finished = true;
+                    setDatasetManifestLink(result.url);
+                    setDatasetSummaryFromManifest(result.data);
+                    resolve(result.data);
+                })
+                .catch(function() {
+                    failures++;
+                    if (failures === DATASET_MANIFEST_ENDPOINTS.length && !finished) {
+                        finished = true;
+                        resolve(null);
+                    }
+                });
+        });
+    });
+    return _datasetManifestPromise;
+}
+
+// Render a hotkey cell that links to the *coldkey* page on TaoMarketCap.
+// Coldkey owns the wallet and aggregates emissions, so a coldkey link is
+// the right pivot for "show me everything this miner has done". When the
+// hotkey has no coldkey on file (deregistered, or metagraph not synced
+// yet) we render the short hotkey as plain text -- still recognizable,
+// but no broken link out.
+function hotkeyCell(hotkey, coldkey) {
+    if (!hotkey) return "--";
+    var label = short(hotkey, 16);
+    if (!coldkey) return label;
+    return '<a href="https://taomarketcap.com/coldkey/' + encodeURIComponent(coldkey) +
+        '" target="_blank" style="color:var(--ink)">' + label + '</a>';
+}
+
+function timeAgo(iso) {
+    if (!iso) return "--";
+    var sec = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+    if (sec < 0) sec = 0;
+    if (sec < 60) return sec + "s ago";
+    var min = Math.floor(sec / 60);
+    if (min < 60) return min + "m ago";
+    var hr = Math.floor(min / 60);
+    if (hr < 24) return hr + "h ago";
+    var day = Math.floor(hr / 24);
+    return day + "d ago";
+}
+
+function ema(arr, alpha) {
+    if (alpha >= 1 || arr.length === 0) return arr.slice();
+    var out = [arr[0]];
+    for (var i = 1; i < arr.length; i++) {
+        out.push(alpha * arr[i] + (1 - alpha) * out[i - 1]);
+    }
+    return out;
+}
+
+function lowess(arr, strength) {
+    var n = arr.length;
+    if (n < 3 || strength <= 0) return arr.slice();
+    var span = Math.max(3, Math.ceil(n * (0.12 + strength * 0.58)));
+    if (span > n) span = n;
+    var out = [];
+    for (var i = 0; i < n; i++) {
+        var distances = [];
+        for (var j = 0; j < n; j++) distances.push({ idx: j, dist: Math.abs(j - i) });
+        distances.sort(function(a, b) { return a.dist - b.dist; });
+        var bandwidth = distances[span - 1].dist || 1;
+        var sw = 0, swx = 0, swy = 0, swxx = 0, swxy = 0;
+        for (var k = 0; k < span; k++) {
+            var idx = distances[k].idx;
+            var u = distances[k].dist / bandwidth;
+            var w = Math.pow(1 - Math.pow(u, 3), 3);
+            var x = idx;
+            var y = arr[idx];
+            sw += w;
+            swx += w * x;
+            swy += w * y;
+            swxx += w * x * x;
+            swxy += w * x * y;
+        }
+        var denom = sw * swxx - swx * swx;
+        if (Math.abs(denom) < 1e-12 || sw === 0) {
+            out.push(sw ? swy / sw : arr[i]);
+        } else {
+            var slope = (sw * swxy - swx * swy) / denom;
+            var intercept = (swy - slope * swx) / sw;
+            out.push(intercept + slope * i);
+        }
+    }
+    return out;
+}
+
+function smoothSeries(arr, amount) {
+    if (amount <= 0) return arr.slice();
+    if (_smoothMode === "normal") {
+        return ema(arr, 1 / (1 + amount * 20));
+    }
+    return lowess(arr, amount);
+}
+
+var ERROR_MESSAGES = {
+    hf_metadata_error: {
+        title: "Model Not Found",
+        message: function(detail) {
+            return "Could not fetch your model metadata from HuggingFace. " +
+                "Make sure your repo exists, is public, and has a valid 'main' branch.";
+        }
+    },
+    config_rejected: {
+        title: "Config Rejected",
+        message: function(detail) {
+            if (detail.indexOf("architecture mismatch") !== -1)
+                return "Your model architecture doesn't match the current king. " +
+                    "Ensure your model uses the same architecture (check 'architectures' in config.json).";
+            if (detail.indexOf("mismatch") !== -1)
+                return "Your model dimensions don't match the king. " +
+                    "Check that vocab_size, hidden_size, num_hidden_layers, " +
+                    "num_attention_heads, and other shape parameters in config.json match the king model.";
+            if (detail.indexOf("no .safetensors") !== -1)
+                return "No .safetensors weight files found in your repo. " +
+                    "Upload your model weights in safetensors format.";
+            if (detail.indexOf("cannot fetch config.json") !== -1)
+                return "Could not download config.json from your repo. " +
+                    "Make sure config.json exists at the repo root and the repo is accessible.";
+            return "Your model config was rejected: " + detail;
+        }
+    },
+    no_manifest: {
+        title: "Dataset Unavailable",
+        message: function() {
+            return "The evaluation dataset is temporarily unavailable. " +
+                "This is not a problem with your model -- it will be retried automatically.";
+        }
+    },
+    eval_error: {
+        title: "Evaluation Failed",
+        message: function(detail) {
+            if (detail.indexOf("CUDA out of memory") !== -1)
+                return "Your model ran out of GPU memory during evaluation. " +
+                    "Ensure your model fits within the validator's GPU constraints.";
+            if (detail.indexOf("weight_shape") !== -1 || detail.indexOf("size mismatch") !== -1)
+                return "Model weight shapes don't match the expected architecture. " +
+                    "Verify your safetensors match your config.json dimensions.";
+            if (detail.indexOf("eval server") !== -1)
+                return "The evaluation server encountered an internal error. " +
+                    "This is likely transient -- your model will be retried.";
+            if (detail.indexOf("stream ended without verdict") !== -1)
+                return "The evaluation was interrupted before completing. " +
+                    "This is likely transient -- your model will be retried.";
+            return "An unexpected error occurred during evaluation. Details: " + detail;
+        }
+    }
+};
+
+function modelRepo(obj) { return (obj && (obj.model_repo || obj.challenger_repo)) || ""; }
+function modelDigest(obj) { return (obj && (obj.model_digest || obj.king_digest || obj.challenger_digest)) || ""; }
+function shortDigest(d) { return d ? d.slice(0, 19) : ""; }
+function hubUrl(repo) {
+    if (!repo) return "#";
+    var parts = repo.split("/");
+    if (parts.length < 2) return "https://hub.hippius.com/models";
+    return "https://hub.hippius.com/models/" + parts[0] + "/" + parts.slice(1).join("/");
+}
+function modelLink(repo, digest, label) {
+    if (!repo) return label || "--";
+    return '<a href="' + hubUrl(repo) + '" target="_blank" style="color:var(--ink)">' + (label || repo) + '</a>';
+}
+
+function esc(s) {
+    return String(s == null ? "" : s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+}
+
+function formatBenchScore(score) {
+    if (score == null || !isFinite(score)) return "--";
+    return (score * 100).toFixed(1) + "%";
+}
+
+
+
+function benchmarkKey(value) {
+    return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function benchmarkScoreValue(row) {
+    if (!row) return null;
+    if (row.score != null) return row.score;
+    if (row.metric && row.metric.value != null) return row.metric.value;
+    return null;
+}
+
+function benchmarkModelLabel(model) {
+    model = model || {};
+    if (model.model_input) return model.model_input;
+    if (model.source && model.source.indexOf("/") >= 0) return model.source;
+    var repo = model.model_repo || model.repo_id || "--";
+    var digest = model.king_digest || model.model_digest || model.digest || model.revision;
+    return digest && repo !== "--" ? repo + "@" + digest : repo;
+}
+
+function benchmarkModelDisplayLabel(model) {
+    return benchmarkModelLabel(model)
+        .replace(/@(sha256:)([0-9a-f]{10})[0-9a-f]{44,}/i, "@$1$2...")
+        .replace(/@(hf:)([0-9a-f]{10})[0-9a-f]{20,}/i, "@$1$2...");
+}
+
+function benchmarkResultKey(result) {
+    result = result || {};
+    var model = result.model || {};
+    return model.king_id || result.job_id || model.model_repo || model.repo_id || "";
+}
+
+function benchmarkStatusRank(status) {
+    if (status === "completed") return 5;
+    if (status === "completed_no_metric" || status === "failed") return 4;
+    if (status === "running" || status === "pending") return 2;
+    if (status === "not_run") return 1;
+    return status ? 3 : 0;
+}
+
+function mergeBenchmarkRow(existing, incoming) {
+    if (!existing) return incoming;
+    if (!incoming) return existing;
+    var existingValue = benchmarkScoreValue(existing);
+    var incomingValue = benchmarkScoreValue(incoming);
+    if (existingValue != null && incomingValue == null && benchmarkStatusRank(incoming.status) <= benchmarkStatusRank("running")) {
+        return existing;
+    }
+    if (incomingValue == null && benchmarkStatusRank(incoming.status) < benchmarkStatusRank(existing.status)) {
+        return existing;
+    }
+    return Object.assign({}, existing, incoming);
+}
+
+function mergeBenchmarkResults(existing, incoming) {
+    if (!existing) return incoming;
+    if (!incoming) return existing;
+    var merged = Object.assign({}, existing, incoming);
+    merged.model = Object.assign({}, existing.model || {}, incoming.model || {});
+    var byKey = {};
+    function put(row) {
+        if (!row) return;
+        var copy = Object.assign({}, row);
+        var nameKey = benchmarkKey(copy.name);
+        var taskKey = benchmarkKey(copy.task);
+        copy = mergeBenchmarkRow(byKey[nameKey] || byKey[taskKey], copy);
+        byKey[nameKey] = copy;
+        byKey[taskKey] = copy;
+    }
+    (existing.benchmarks || []).forEach(put);
+    (incoming.benchmarks || []).forEach(put);
+    merged.benchmarks = BENCHMARK_ORDER.map(function(spec) {
+        return byKey[benchmarkKey(spec.name)] || byKey[benchmarkKey(spec.task)];
+    }).filter(Boolean);
+    return merged;
+}
+
+function statusLabel(status) {
+    if (status === "running" || status === "pending") return "in progress";
+    if (status === "completed_no_metric") return "no metric";
+    return status || "in progress";
+}
+
+function activeJobRows(payload) {
+    var names = payload && payload.active_job && Array.isArray(payload.active_job.benchmarks) ? payload.active_job.benchmarks : BENCHMARK_ORDER.map(function(spec) { return spec.name; });
+    var allowed = {};
+    names.forEach(function(name) { allowed[benchmarkKey(name)] = true; });
+    return BENCHMARK_ORDER.filter(function(spec) { return allowed[benchmarkKey(spec.name)] || allowed[benchmarkKey(spec.task)]; }).map(function(spec) {
+        return {
+            name: spec.name,
+            task: spec.task,
+            fewshot: spec.fewshot,
+            status: "running",
+            metric: { name: null, value: null }
+        };
+    });
+}
+
+function completeBenchmarkRows(payload, opts) {
+    opts = opts || {};
+    var rows = payload && Array.isArray(payload.benchmarks) ? payload.benchmarks : [];
+    var byKey = {};
+    rows.forEach(function(row) {
+        byKey[benchmarkKey(row.name)] = row;
+        byKey[benchmarkKey(row.task)] = row;
+    });
+    return BENCHMARK_ORDER.map(function(spec) {
+        var row = byKey[benchmarkKey(spec.name)] || byKey[benchmarkKey(spec.task)];
+        if (!row) {
+            return {
+                name: spec.name,
+                task: spec.task,
+                fewshot: spec.fewshot,
+                status: opts.missingStatus || "running",
+                metric: { name: null, value: null }
+            };
+        }
+        var merged = Object.assign({}, spec, row);
+        merged.name = spec.name;
+        merged.task = row.task || spec.task;
+        merged.fewshot = row.fewshot == null ? spec.fewshot : row.fewshot;
+        return merged;
+    });
+}
+
+function renderBenchmarks(payload) {
+    var grid = document.getElementById("bench-grid");
+    var meta = document.getElementById("bench-meta");
+    if (!grid || !meta) return;
+    payload = normalizeBenchmarkPayload(payload);
+    if (!payload || !Array.isArray(payload.benchmarks)) {
+        meta.textContent = "No benchmark data";
+        grid.innerHTML = completeBenchmarkRows(null).map(function(b) {
+            return '<div class="bench-card" data-status="running"><div class="bench-name">' + esc(b.name) + '</div><div class="bench-score">--</div><div class="bench-status"><span>in progress</span><span>' + esc(b.fewshot + "-shot") + '</span></div></div>';
+        }).join("");
+        renderBenchmarkHistory();
+        return;
+    }
+    var rows = completeBenchmarkRows(payload);
+    var totals = payload.totals || {};
+    var model = payload.model || {};
+    var modelLabel = benchmarkModelDisplayLabel(model);
+    meta.textContent = (payload.status || "--") + " · " + (totals.completed || 0) + "/" + BENCHMARK_ORDER.length + " complete · " + modelLabel;
+    grid.innerHTML = rows.map(function(b) {
+        var status = b.status || "running";
+        var metricName = b.metric && b.metric.name ? b.metric.name.replace(/,none$/, "") : "--";
+        var fs = b.fewshot == null ? "--" : b.fewshot + "-shot";
+        var score = formatBenchScore(benchmarkScoreValue(b));
+        var subtitle = status === "completed" ? metricName : statusLabel(status);
+        return '<div class="bench-card" data-status="' + esc(status) + '">' +
+            '<div class="bench-name">' + esc(b.name || "--") + '</div>' +
+            '<div class="bench-score">' + esc(score) + '</div>' +
+            '<div class="bench-status"><span>' + esc(subtitle) + '</span><span>' + esc(fs) + '</span></div>' +
+            '</div>';
+    }).join("");
+    renderBenchmarkHistory();
+}
+
+function normalizeBenchmarkPayload(payload, opts) {
+    opts = opts || {};
+    if (!payload) return null;
+    if (Array.isArray(payload.benchmarks)) return payload;
+    if (!opts.activeOnly && payload.latest_result && Array.isArray(payload.latest_result.benchmarks)) {
+        return payload.latest_result;
+    }
+    var partial = payload.worker_event && payload.worker_event.partial_results;
+    if (!opts.activeOnly && partial && Array.isArray(partial.benchmarks)) {
+        return {
+            status: payload.status || payload.worker_event.status || "running",
+            generated_at: payload.generated_at || payload.worker_event.updated_at || partial.generated_at,
+            started_at: partial.started_at,
+            finished_at: partial.finished_at,
+            model: payload.worker_event.model || partial.model,
+            totals: partial.totals,
+            benchmarks: partial.benchmarks
+        };
+    }
+    if (opts.includeActive) {
+        var activePartial = payload.active_worker_event && payload.active_worker_event.partial_results;
+        if (activePartial && Array.isArray(activePartial.benchmarks)) {
+            var activeRows = activePartial.benchmarks;
+            if (!activeRows.length && payload.active_job && payload.active_job.model) {
+                activeRows = activeJobRows(payload);
+            }
+            return {
+                status: payload.active_worker_event.status || payload.status || "running",
+                generated_at: payload.generated_at || payload.active_worker_event.updated_at || activePartial.generated_at,
+                started_at: activePartial.started_at,
+                finished_at: activePartial.finished_at,
+                model: payload.active_worker_event.model || activePartial.model || (payload.active_job && payload.active_job.model),
+                totals: activePartial.totals || { requested: activeRows.length, completed: 0, completed_no_metric: 0, failed: 0 },
+                benchmarks: activeRows,
+                is_active: true
+            };
+        }
+        if (payload.active_job && payload.active_job.model) {
+            return {
+                status: payload.status || "running",
+                generated_at: payload.generated_at,
+                model: payload.active_job.model,
+                totals: { requested: (payload.active_job.benchmarks || []).length || BENCHMARK_ORDER.length, completed: 0, completed_no_metric: 0, failed: 0 },
+                benchmarks: activeJobRows(payload),
+                is_active: true
+            };
+        }
+    }
+    return null;
+}
+
+function parseBenchmarkTime(value) {
+    if (!value) return null;
+    var t = new Date(value).getTime();
+    return isNaN(t) ? null : t;
+}
+
+function benchmarkKingTime(result) {
+    result = result || {};
+    var model = result.model || {};
+    return parseBenchmarkTime(
+        model.crowned_at ||
+        model.uploaded_at ||
+        model.created_at ||
+        model.timestamp ||
+        result.king_uploaded_at ||
+        result.king_created_at
+    );
+}
+
+function compareBenchmarkKings(a, b, newestFirst) {
+    var at = benchmarkKingTime(a);
+    var bt = benchmarkKingTime(b);
+    if (at != null && bt != null && at !== bt) return newestFirst ? bt - at : at - bt;
+    if (at != null && bt == null) return newestFirst ? -1 : 1;
+    if (at == null && bt != null) return newestFirst ? 1 : -1;
+    var ma = (a && a.model) || {}, mb = (b && b.model) || {};
+    var ra = Number(ma.reign_number || 0), rb = Number(mb.reign_number || 0);
+    if (ra !== rb) return newestFirst ? rb - ra : ra - rb;
+    var af = parseBenchmarkTime(a && (a.generated_at || a.finished_at)) || 0;
+    var bf = parseBenchmarkTime(b && (b.generated_at || b.finished_at)) || 0;
+    return newestFirst ? bf - af : af - bf;
+}
+
+function benchmarkHistoryRows() {
+    var rows = [];
+    var seen = {};
+    function addResult(result) {
+        if (!result || !Array.isArray(result.benchmarks)) return;
+        var key = benchmarkResultKey(result) || String(rows.length);
+        if (seen[key] != null) {
+            rows[seen[key]] = mergeBenchmarkResults(rows[seen[key]], result);
+            return;
+        }
+        seen[key] = rows.length;
+        rows.push(result);
+    }
+    addResult(normalizeBenchmarkPayload(_lastBenchData));
+    addResult(normalizeBenchmarkPayload(_lastBenchData, { activeOnly: true, includeActive: true }));
+    var kings = _benchHistoryData && _benchHistoryData.kings ? _benchHistoryData.kings : {};
+    Object.keys(kings).forEach(function(key) { addResult(kings[key].latest_result); });
+    rows.sort(function(a, b) {
+        return compareBenchmarkKings(a, b, true);
+    });
+    return rows;
+}
+
+function benchmarkHistoryChronological(rows) {
+    return rows.slice().sort(function(a, b) {
+        return compareBenchmarkKings(a, b, false);
+    });
+}
+
+function renderBenchmarkSparks(rows) {
+    var ordered = benchmarkHistoryChronological(rows || []);
+    var cards = BENCHMARK_ORDER.map(function(spec) {
+        var points = [];
+        ordered.forEach(function(result) {
+            var benchRows = completeBenchmarkRows(result, { missingStatus: "not_run" });
+            var row = null;
+            benchRows.forEach(function(b) {
+                if (benchmarkKey(b.name) === benchmarkKey(spec.name)) row = b;
+            });
+            var value = benchmarkScoreValue(row);
+            if (value != null && isFinite(value)) {
+                points.push({
+                    value: Number(value),
+                    model: benchmarkModelDisplayLabel(result.model),
+                    reign: result.model && result.model.reign_number != null ? "#" + result.model.reign_number : "--"
+                });
+            }
+        });
+        var latest = points.length ? formatBenchScore(points[points.length - 1].value) : "waiting";
+        var svg = "";
+        if (!points.length) {
+            svg = '<line x1="6" y1="26" x2="114" y2="26" stroke="currentColor" stroke-width="1" opacity="0.18"/>' +
+                '<text x="60" y="20" text-anchor="middle" fill="currentColor" opacity="0.45" font-size="8">no score</text>';
+        } else {
+            var values = points.map(function(p) { return p.value; });
+            var min = Math.min.apply(null, values);
+            var max = Math.max.apply(null, values);
+            if (min === max) { min = Math.max(0, min - 0.005); max = Math.min(1, max + 0.005); }
+            var span = max - min || 1;
+            var coords = points.map(function(p, i) {
+                var x = points.length === 1 ? 60 : 6 + (i / (points.length - 1)) * 108;
+                var y = 26 - ((p.value - min) / span) * 20;
+                return { x: x, y: y, point: p };
+            });
+            svg += '<line x1="6" y1="26" x2="114" y2="26" stroke="currentColor" stroke-width="1" opacity="0.15"/>';
+            if (coords.length > 1) {
+                svg += '<polyline points="' + coords.map(function(c) { return c.x.toFixed(1) + ',' + c.y.toFixed(1); }).join(' ') + '" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>';
+            }
+            coords.forEach(function(c, i) {
+                var opacity = i === coords.length - 1 ? '1' : '0.45';
+                svg += '<circle cx="' + c.x.toFixed(1) + '" cy="' + c.y.toFixed(1) + '" r="2.4" fill="currentColor" opacity="' + opacity + '"><title>' + esc(c.point.reign + ' · ' + c.point.model + ' · ' + formatBenchScore(c.point.value)) + '</title></circle>';
+            });
+        }
+        return '<div class="bench-spark" title="' + esc(spec.name + ' history') + '">' +
+            '<div class="bench-spark-head"><strong>' + esc(spec.name) + '</strong><span>' + esc(latest) + '</span></div>' +
+            '<svg viewBox="0 0 120 34" role="img" aria-label="' + esc(spec.name + ' history chart') + '">' + svg + '</svg>' +
+            '</div>';
+    });
+    return '<div class="bench-spark-grid">' + cards.join("") + '</div>';
+}
+
+function renderBenchmarkHistory() {
+    var panel = document.getElementById("bench-history");
+    var toggle = document.getElementById("bench-history-toggle");
+    if (!panel) return;
+    panel.hidden = !_benchHistoryOpen;
+    if (toggle) toggle.textContent = _benchHistoryOpen ? "Hide History" : "History";
+    if (!_benchHistoryOpen) return;
+    var rows = benchmarkHistoryRows();
+    if (!rows.length) {
+        panel.innerHTML = renderBenchmarkSparks([]) + '<div class="bench-history-empty">No benchmark history yet</div>';
+        return;
+    }
+    var pageSize = _benchHistoryPageSize || 5;
+    var pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
+    if (_benchHistoryPage < 0) _benchHistoryPage = 0;
+    if (_benchHistoryPage >= pageCount) _benchHistoryPage = pageCount - 1;
+    var start = _benchHistoryPage * pageSize;
+    var visibleRows = rows.slice(start, start + pageSize);
+    var pager = '<div class="bench-history-pager">' +
+        '<div class="bench-history-pager-left"><button type="button" data-bench-page="prev"' + (_benchHistoryPage <= 0 ? ' disabled' : '') + '>Prev</button>' +
+        '<span>Page ' + esc(_benchHistoryPage + 1) + ' / ' + esc(pageCount) + ' · ' + esc(rows.length) + ' kings</span>' +
+        '<button type="button" data-bench-page="next"' + (_benchHistoryPage >= pageCount - 1 ? ' disabled' : '') + '>Next</button></div>' +
+        '<label class="bench-history-pager-right">Rows <select data-bench-page-size>' + [5, 10, 25, 50].map(function(n) { return '<option value="' + n + '"' + (n === pageSize ? ' selected' : '') + '>' + n + '</option>'; }).join("") + '</select></label>' +
+        '</div>';
+    var head = '<thead><tr><th>King</th><th>Model</th>' + BENCHMARK_ORDER.map(function(b) { return '<th>' + esc(b.name) + '</th>'; }).join("") + '</tr></thead>';
+    var body = visibleRows.map(function(result) {
+        var model = result.model || {};
+        var modelLabel = benchmarkModelLabel(model);
+        var modelDisplayLabel = benchmarkModelDisplayLabel(model);
+        var benchRows = completeBenchmarkRows(result, { missingStatus: "not_run" });
+        var byName = {};
+        benchRows.forEach(function(b) { byName[benchmarkKey(b.name)] = b; });
+        var cells = BENCHMARK_ORDER.map(function(spec) {
+            var b = byName[benchmarkKey(spec.name)];
+            var score = formatBenchScore(benchmarkScoreValue(b));
+            if (score === "--" && b && b.status && b.status !== "completed" && b.status !== "not_run") score = statusLabel(b.status);
+            return '<td>' + esc(score) + '</td>';
+        }).join("");
+        var kingStamp = benchmarkKingTime(result);
+        var kingLabel = model.reign_number == null ? "--" : "#" + model.reign_number;
+        if (kingStamp) kingLabel += " · " + new Date(kingStamp).toISOString().slice(0, 10);
+        return '<tr><td>' + esc(kingLabel) + '</td><td title="' + esc(modelLabel) + '">' + esc(modelDisplayLabel) + '</td>' + cells + '</tr>';
+    }).join("");
+    panel.innerHTML = renderBenchmarkSparks(rows) + pager + '<table>' + head + '<tbody>' + body + '</tbody></table>';
+}
+
+function pollBenchmarkHistory() {
+    var failures = 0;
+    var buster = Date.now();
+    BENCH_INDEX_ENDPOINTS.forEach(function(url) {
+        fetch(url + "?t=" + buster)
+            .then(function(r) {
+                if (!r.ok) throw new Error("HTTP " + r.status);
+                return r.json();
+            })
+            .then(function(data) {
+                if (_benchHistoryData) return;
+                _benchHistoryData = data;
+                renderBenchmarkHistory();
+            })
+            .catch(function() {
+                failures++;
+                if (failures === BENCH_INDEX_ENDPOINTS.length) renderBenchmarkHistory();
+            });
+    });
+}
+
+async function pollBenchmarks() {
+    var failures = 0;
+    var buster = Date.now();
+    BENCH_ENDPOINTS.forEach(function(url) {
+        fetch(url + "?t=" + buster)
+            .then(function(r) {
+                if (!r.ok) throw new Error("HTTP " + r.status);
+                return r.json();
+            })
+            .then(function(data) {
+                if (_lastBenchData) return;
+                _lastBenchData = data;
+                renderBenchmarks(data);
+            })
+            .catch(function() {
+                failures++;
+                if (failures === BENCH_ENDPOINTS.length && !_lastBenchData) renderBenchmarks(null);
+            });
+    });
+}
+
+function render(d) {
+    setDatasetManifestLink(DATASET_MANIFEST_URL);
+    if (!setDatasetSummaryFromMeta(datasetMetaFromPayload(d))) {
+        loadDatasetManifest();
+    }
+
+    var mkt = d.market || {};
+    if (mkt.tao_price_usd) {
+        document.getElementById("tao-price").textContent = "$" + mkt.tao_price_usd.toFixed(2);
+        var ch = mkt.tao_change_24h;
+        var chEl = document.getElementById("tao-change");
+        chEl.textContent = (ch >= 0 ? "+" : "") + ch.toFixed(1) + "%";
+        chEl.style.color = ch >= 0 ? "#2a2" : "#c22";
+    }
+    if (mkt.sn3_alpha_price_tao != null) {
+        document.getElementById("alpha-price").textContent = mkt.sn3_alpha_price_tao.toFixed(4) + " \u03C4";
+    }
+    if (mkt.sn3_reg_burn_tao != null) {
+        document.getElementById("reg-cost").textContent = mkt.sn3_reg_burn_tao.toFixed(6) + " \u03C4";
+    }
+
+    var chain = d.chain || {};
+    if (chain.name) {
+        var chainNameEl = document.getElementById("chain-name");
+        if (chainNameEl) chainNameEl.textContent = chain.name;
+        document.title = chain.name;
+    }
+    var genesisRepo = chain.seed_repo || "--";
+    var genesisDigest = chain.seed_digest || "";
+    var genesisLink = document.getElementById("genesis-link");
+    if (genesisLink) {
+        genesisLink.href = hubUrl(genesisRepo);
+        genesisLink.textContent = genesisRepo;
+    }
+    var genesisRevEl = document.getElementById("genesis-rev");
+    if (genesisRevEl) {
+        if (genesisDigest) {
+            genesisRevEl.innerHTML = '@ <a href="' + hubUrl(genesisRepo) + '" target="_blank" style="color:var(--ink);opacity:0.6">' + shortDigest(genesisDigest) + '</a>';
+        } else {
+            genesisRevEl.textContent = "";
+        }
+    }
+
+    var king = d.king || {};
+    var hist_all = d.history || [];
+    var topModel = null;
+    for (var ti = 0; ti < hist_all.length; ti++) {
+        if (hist_all[ti].accepted && hist_all[ti].challenger_repo) {
+            topModel = hist_all[ti]; break;
+        }
+    }
+    var kingRepo = topModel ? modelRepo(topModel) : (king.model_repo || "--");
+    var kingDigest = topModel ? modelDigest(topModel) : (king.king_digest || king.model_digest || "");
+    var kingLinkTop = document.getElementById("king-link-top");
+    kingLinkTop.href = hubUrl(kingRepo);
+    kingLinkTop.textContent = kingRepo;
+    var kingRevEl = document.getElementById("king-rev");
+    if (kingDigest) {
+        kingRevEl.innerHTML = '@ <a href="' + hubUrl(kingRepo) + '" target="_blank" style="color:var(--ink);opacity:0.6">' + shortDigest(kingDigest) + '</a>';
+    } else {
+        kingRevEl.textContent = "";
+    }
+    var healthEl = document.getElementById("king-health");
+    healthEl.textContent = "\u25CF ";
+    healthEl.style.color = "#2a2";
+    healthEl.title = "King repo live";
+    var reignEl = document.getElementById("king-reign");
+    reignEl.textContent = king.reign_number != null ? "REIGN #" + king.reign_number + (king.crowned_at ? " \u2014 " + king.crowned_at.slice(0, 16) + "Z" : "") : "";
+
+    var hist = (d.history || []).slice().reverse();
+    var ev = d.current_eval;
+
+    // --- Chart (king + challenger, perplexity or loss) ---
+    var isPpl = _chartMode === "ppl";
+    document.getElementById("chart-label").textContent = isPpl ? "Perplexity" : "Loss";
+    document.getElementById("chart-mode-toggle").textContent = isPpl ? "Loss" : "Perplexity";
+
+    // Always work in loss-space for stable scaling (perplexity = exp(loss) explodes
+    // for early-training values). Convert to perplexity only at display time.
+    var kingVals = [], challVals = [];
+    for (var i = 0; i < hist.length; i++) {
+        if (hist[i].verdict === "error") continue;
+        var kl = hist[i].avg_king_loss || 0;
+        var cl = hist[i].avg_challenger_loss || 0;
+        if (kl || cl) {
+            var kv = kl || cl, cv = cl || kl;
+            kingVals.push(kv);
+            challVals.push(cv);
+        }
+    }
+    if (ev && ev.avg_king_loss) {
+        var ekv = ev.avg_king_loss;
+        var ecv = ev.avg_challenger_loss || ev.avg_king_loss;
+        kingVals.push(ekv);
+        challVals.push(ecv);
+    }
+    function dispVal(v) { return isPpl ? Math.exp(v) : v; }
+    var nPts = kingVals.length;
+
+    var smoothVal = parseFloat(document.getElementById("smooth-slider").value);
+    var rawKing = kingVals.slice();
+    var rawChall = challVals.slice();
+    if (smoothVal > 0) {
+        kingVals = smoothSeries(kingVals, smoothVal);
+        challVals = smoothSeries(challVals, smoothVal);
+    }
+
+    var SVG = document.getElementById("chart");
+    var rect = SVG.parentElement.getBoundingClientRect();
+    var dpr = window.devicePixelRatio || 1;
+    var W = Math.round(rect.width * dpr);
+    var H = Math.round(rect.height * dpr);
+    if (W < 100) W = 1400;
+    if (H < 40) H = 560;
+    var mlBase = window.innerWidth <= 640 ? 50 : 70;
+    var ML = Math.round(mlBase * dpr), MR = Math.round(16 * dpr);
+    var MT = Math.round(16 * dpr), MB = Math.round(36 * dpr);
+    var pw = W - ML - MR, ph = H - MT - MB;
+    var lw = dpr;
+
+    SVG.setAttribute("viewBox", "0 0 " + W + " " + H);
+
+    var cs = getComputedStyle(document.documentElement);
+    var inkC = cs.getPropertyValue('--ink').trim();
+    var mutedC = cs.getPropertyValue('--ink-muted').trim();
+
+    if (nPts < 1) {
+        SVG.innerHTML = '<text x="' + (W/2) + '" y="' + (H/2) + '" text-anchor="middle" font-family="Space Mono,monospace" font-size="' + (13*dpr) + '" fill="' + inkC + '">NO DATA</text>';
+        document.getElementById("chart-meta").innerHTML = "<span>--</span>";
+    } else {
+
+    // Focus controls the Y-axis authority; the other series remains context.
+    var scaleVals = _chartScaleFocus === "challenger" ? challVals.concat(rawChall) : kingVals.concat(rawKing);
+    var sorted = scaleVals.slice().sort(function(a, b) { return a - b; });
+    var minL = sorted[0];
+    var maxL = sorted[sorted.length - 1];
+    if (sorted.length >= 4) {
+        var p95 = sorted[Math.floor(sorted.length * 0.95)];
+        var iqr = sorted[Math.floor(sorted.length * 0.75)] - sorted[Math.floor(sorted.length * 0.25)];
+        var cap = p95 + iqr * 1.5;
+        if (maxL > cap && cap > minL) maxL = cap;
+    }
+    var padV = (maxL - minL) * 0.08 || 0.5;
+    minL -= padV; maxL += padV;
+
+    function toX(i) { return ML + (nPts > 1 ? (i / (nPts - 1)) * pw : pw / 2); }
+    function toY(v) { return MT + ph - ((v - minL) / (maxL - minL)) * ph; }
+
+    var clipId = "chart-clip-" + Math.round(Date.now() + Math.random() * 1000);
+    var svg = '<defs><clipPath id="' + clipId + '"><rect x="' + ML + '" y="' + MT + '" width="' + pw + '" height="' + ph + '"/></clipPath></defs>';
+    var fs = Math.round(11 * dpr);
+    var font = 'font-family="Space Mono,monospace" font-size="' + fs + '" fill="' + inkC + '"';
+
+    svg += '<line x1="' + ML + '" y1="' + MT + '" x2="' + ML + '" y2="' + (MT + ph) + '" stroke="' + inkC + '" stroke-width="' + lw + '"/>';
+    svg += '<line x1="' + ML + '" y1="' + (MT + ph) + '" x2="' + (ML + pw) + '" y2="' + (MT + ph) + '" stroke="' + inkC + '" stroke-width="' + lw + '"/>';
+
+    var nTicks = 8;
+    for (var t = 0; t <= nTicks; t++) {
+        var val = minL + (maxL - minL) * (t / nTicks);
+        var yy = toY(val);
+        svg += '<line x1="' + (ML - 5*dpr) + '" y1="' + yy + '" x2="' + ML + '" y2="' + yy + '" stroke="' + inkC + '" stroke-width="' + lw + '"/>';
+        svg += '<text x="' + (ML - 8*dpr) + '" y="' + (yy + fs*0.35) + '" text-anchor="end" ' + font + '>' + dispVal(val).toFixed(2) + '</text>';
+        if (t > 0 && t < nTicks) {
+            svg += '<line x1="' + ML + '" y1="' + yy + '" x2="' + (ML + pw) + '" y2="' + yy + '" stroke="' + inkC + '" stroke-width="' + (0.5*dpr) + '" stroke-dasharray="' + (3*dpr) + ' ' + (6*dpr) + '"/>';
+        }
+    }
+
+    for (var i = 0; i < nPts; i++) {
+        var xx = toX(i);
+        svg += '<line x1="' + xx + '" y1="' + (MT + ph) + '" x2="' + xx + '" y2="' + (MT + ph + 5*dpr) + '" stroke="' + inkC + '" stroke-width="' + lw + '"/>';
+        var label = (ev && i === nPts - 1) ? "NOW" : "";
+        svg += '<text x="' + xx + '" y="' + (MT + ph + 20*dpr) + '" text-anchor="middle" ' + font + '>' + label + '</text>';
+    }
+
+    // Raw ghost lines (faint, only when smoothing active)
+    if (smoothVal > 0) {
+        var rawCpts = [];
+        for (var i = 0; i < nPts; i++) {
+            rawCpts.push(toX(i).toFixed(1) + "," + toY(rawChall[i]).toFixed(1));
+        }
+        svg += '<polyline points="' + rawCpts.join(" ") + '" fill="none" stroke="' + mutedC + '" stroke-width="' + (0.5*dpr) + '" stroke-dasharray="' + (2*dpr) + ' ' + (4*dpr) + '" stroke-linejoin="round" opacity="0.3" clip-path="url(#' + clipId + ')"/>';
+
+        var rawKpts = [];
+        for (var i = 0; i < nPts; i++) {
+            rawKpts.push(toX(i).toFixed(1) + "," + toY(rawKing[i]).toFixed(1));
+        }
+        svg += '<polyline points="' + rawKpts.join(" ") + '" fill="none" stroke="' + inkC + '" stroke-width="' + (0.5*dpr) + '" stroke-dasharray="' + (2*dpr) + ' ' + (4*dpr) + '" stroke-linejoin="round" opacity="0.25" clip-path="url(#' + clipId + ')"/>';
+
+        for (var i = 0; i < nPts; i++) {
+            svg += '<circle cx="' + toX(i).toFixed(1) + '" cy="' + toY(rawKing[i]).toFixed(1) + '" r="' + (1.5*dpr) + '" fill="' + inkC + '" opacity="0.2" clip-path="url(#' + clipId + ')"/>';
+            svg += '<circle cx="' + toX(i).toFixed(1) + '" cy="' + toY(rawChall[i]).toFixed(1) + '" r="' + (1.5*dpr) + '" fill="' + mutedC + '" opacity="0.2" clip-path="url(#' + clipId + ')"/>';
+        }
+    }
+
+    // Challenger line (dashed gray)
+    var cpts = [];
+    for (var i = 0; i < nPts; i++) {
+        cpts.push(toX(i).toFixed(1) + "," + toY(challVals[i]).toFixed(1));
+    }
+    svg += '<polyline points="' + cpts.join(" ") + '" fill="none" stroke="' + mutedC + '" stroke-width="' + (1*dpr) + '" stroke-dasharray="' + (4*dpr) + ' ' + (3*dpr) + '" stroke-linejoin="round" clip-path="url(#' + clipId + ')"/>';
+    for (var i = 0; i < nPts; i++) {
+        svg += '<circle cx="' + toX(i).toFixed(1) + '" cy="' + toY(challVals[i]).toFixed(1) + '" r="' + (2*dpr) + '" fill="' + mutedC + '" clip-path="url(#' + clipId + ')"/>';
+    }
+
+    // King line (solid black)
+    var kpts = [];
+    for (var i = 0; i < nPts; i++) {
+        kpts.push(toX(i).toFixed(1) + "," + toY(kingVals[i]).toFixed(1));
+    }
+    svg += '<polyline points="' + kpts.join(" ") + '" fill="none" stroke="' + inkC + '" stroke-width="' + (1.5*dpr) + '" stroke-linejoin="round" clip-path="url(#' + clipId + ')"/>';
+    for (var i = 0; i < nPts; i++) {
+        svg += '<circle cx="' + toX(i).toFixed(1) + '" cy="' + toY(kingVals[i]).toFixed(1) + '" r="' + (3*dpr) + '" fill="' + inkC + '" clip-path="url(#' + clipId + ')"/>';
+    }
+
+    // Legend
+    var legX = ML + 12*dpr, legY = MT + 14*dpr;
+    svg += '<line x1="' + legX + '" y1="' + legY + '" x2="' + (legX + 20*dpr) + '" y2="' + legY + '" stroke="' + inkC + '" stroke-width="' + (1.5*dpr) + '"/>';
+    svg += '<text x="' + (legX + 24*dpr) + '" y="' + (legY + fs*0.35) + '" ' + font + '>KING</text>';
+    var leg2X = legX + 80*dpr;
+    svg += '<line x1="' + leg2X + '" y1="' + legY + '" x2="' + (leg2X + 20*dpr) + '" y2="' + legY + '" stroke="' + mutedC + '" stroke-width="' + (1*dpr) + '" stroke-dasharray="' + (4*dpr) + ' ' + (3*dpr) + '"/>';
+    svg += '<text x="' + (leg2X + 24*dpr) + '" y="' + (legY + fs*0.35) + '" ' + font + ' fill="' + mutedC + '">CHALLENGER</text>';
+
+    SVG.innerHTML = svg;
+
+    var latestK = kingVals[nPts - 1];
+    var metaLabel = isPpl ? "KING PPL" : "KING LOSS";
+    var smoothLabel = smoothVal > 0 ? (_smoothMode === "normal" ? "NORMAL" : "LOWESS") + " " + smoothVal.toFixed(2) : "OFF";
+    var scaleLabel = _chartScaleFocus === "challenger" ? "CHALLENGER" : "KING";
+    document.getElementById("chart-meta").innerHTML =
+        "<span>" + metaLabel + ": " + dispVal(latestK).toFixed(4) + "</span><span>SCALE: " + scaleLabel + "</span><span>SMOOTH: " + smoothLabel + "</span><span>EVALS: " + nPts + "</span>";
+
+    } // end chart data block
+
+    // --- Current Duel ---
+    var STAGE_LABELS = {
+        queued: "Queued",
+        dispatching: "Dispatching to eval server",
+        waiting_for_slot: "Waiting for eval slot",
+        eval_start: "Starting eval",
+        king_load_cached: "King already loaded",
+        king_reload: "Swapping king model",
+        king_load_start: "Loading king model",
+        model_prefetch_start: "Downloading king from HuggingFace",
+        model_prefetch_done: "King download complete",
+        model_load_attn: "Initialising attention",
+        model_load_start: "Loading model onto GPU",
+        model_load_done: "Model on GPU",
+        king_load_done: "King ready",
+        king_probe_start: "Probing king trainability",
+        king_probe_done: "King probe done",
+        challenger_same_as_king: "Re-using king as challenger",
+        challenger_load_start: "Loading challenger model",
+        challenger_load_done: "Challenger ready",
+        challenger_probe_start: "Probing challenger trainability",
+        challenger_probe_done: "Challenger probe done",
+        shard_cache_hit: "Reading shard from cache",
+        shard_cache_read_done: "Shard ready",
+        shard_download_start: "Downloading eval shard",
+        shard_chunk: "Downloading eval shard",
+        shard_extract: "Preparing sequences",
+        bootstrap_start: "Starting bootstrap",
+        bootstrap_running: "Running bootstrap",
+        bootstrap_compute: "Computing confidence bound"
+    };
+    function stageDescription(ev) {
+        var name = ev.stage;
+        if (!name) return null;
+        var label = STAGE_LABELS[name] || name.replace(/_/g, " ");
+        var extra = ev.stage_extra || {};
+        if (name === "shard_chunk" && extra.done && extra.total) {
+            label += " " + extra.done + "/" + extra.total;
+        } else if (name === "shard_download_start" && extra.total_mb) {
+            label += " (" + extra.total_mb.toFixed(0) + " MB)";
+        } else if (name === "model_load_attn" && extra.attn) {
+            label += " (" + extra.attn + ")";
+        } else if (name === "waiting_for_slot" && extra.attempt && extra.max_attempts) {
+            label += " (" + extra.attempt + "/" + extra.max_attempts + ")";
+        } else if (name === "bootstrap_start" && extra.n_batches) {
+            label += " (" + extra.n_batches + " batches)";
+        }
+        var elapsed = ev.stage_elapsed_s;
+        if (elapsed && elapsed >= 1) {
+            label += "  " + Math.round(elapsed) + "s";
+        }
+        return label;
+    }
+    var duelSec = document.getElementById("duel-section");
+    var duelLabel = document.getElementById("duel-label");
+    var duelBar = document.getElementById("duel-bar");
+    var duelProgress = document.getElementById("duel-progress");
+    var duelWr = document.getElementById("duel-wr");
+    if (ev) {
+        duelSec.classList.remove("duel-idle");
+        var duelName = modelRepo(ev) || short(ev.hotkey, 12);
+        if (modelRepo(ev)) {
+            duelLabel.innerHTML = modelLink(modelRepo(ev), modelDigest(ev), duelName);
+        } else {
+            duelLabel.textContent = duelName;
+        }
+        var stageLabel = stageDescription(ev);
+        var inBootstrap = ev.progress > 0 && (!ev.stage || ev.stage === "bootstrap_running");
+        if (inBootstrap) {
+            var pct = ev.total > 0 ? Math.round((ev.progress / ev.total) * 100) : 0;
+            duelBar.style.width = pct + "%";
+            duelProgress.textContent = ev.progress + " / " + ev.total + "  (" + pct + "%)";
+            duelWr.textContent = "MU: " + (ev.mu_hat || 0).toFixed(6);
+        } else if (stageLabel) {
+            duelBar.style.width = "0%";
+            duelProgress.textContent = stageLabel + " \u2026";
+            duelWr.textContent = ev.mu_hat ? "MU: " + ev.mu_hat.toFixed(6) : "--";
+        } else if (ev.loading) {
+            duelBar.style.width = "0%";
+            duelProgress.textContent = "Loading model \u2026";
+            duelWr.textContent = "--";
+        } else {
+            var pct2 = ev.total > 0 ? Math.round((ev.progress / ev.total) * 100) : 0;
+            duelBar.style.width = pct2 + "%";
+            duelProgress.textContent = ev.progress + " / " + ev.total + "  (" + pct2 + "%)";
+            duelWr.textContent = "MU: " + (ev.mu_hat || 0).toFixed(6);
+        }
+    } else {
+        var q = d.queue || [];
+        if (q.length > 0) {
+            duelSec.classList.remove("duel-idle");
+            var nextRepo = q[0].model_repo || "--";
+            if (q[0].model_repo) {
+                duelLabel.innerHTML = modelLink(q[0].model_repo, q[0].model_digest, nextRepo);
+            } else {
+                duelLabel.textContent = nextRepo;
+            }
+            duelBar.style.width = "0%";
+            duelProgress.textContent = "Loading model \u2026";
+            duelWr.textContent = "--";
+        } else {
+            duelSec.classList.add("duel-idle");
+            duelLabel.textContent = "Idle";
+            duelBar.style.width = "0%";
+            duelProgress.textContent = "--";
+            duelWr.textContent = "--";
+        }
+    }
+
+    // --- King (most-recent winning challenger summary) ---
+    var lwEl = document.getElementById("last-winner");
+    var winner = null;
+    for (var i = 0; i < (d.history || []).length; i++) {
+        if (d.history[i].accepted) { winner = d.history[i]; break; }
+    }
+    if (winner) {
+        var repo = modelRepo(winner) || "--";
+        var link = modelRepo(winner) ? modelLink(modelRepo(winner), modelDigest(winner), repo) : repo;
+        lwEl.innerHTML = '<span style="width:100%">' + link + '</span>' +
+            '<span>MU_HAT: ' + (winner.mu_hat || 0).toFixed(6) + '</span>' +
+            '<span>LCB: ' + (winner.lcb || 0).toFixed(6) + '</span>' +
+            '<span>DELTA: ' + (winner.delta || 0).toFixed(4) + '</span>' +
+            '<span>KING_LOSS: ' + (winner.avg_king_loss || 0).toFixed(4) + '</span>' +
+            '<span>CHALL_LOSS: ' + (winner.avg_challenger_loss || 0).toFixed(4) + '</span>' +
+            (winner.wall_time_s ? '<span>' + winner.wall_time_s.toFixed(0) + 's</span>' : '');
+    } else {
+        lwEl.textContent = "NO DETHRONING YET";
+    }
+
+    // --- Reigns (rolling king window) ---
+    // king_chain entries already include weight/alpha_per_hour/usd_per_hour
+    // straight from the validator; king_chain_weights is a fallback for older
+    // payloads where those fields lived in a separate block.
+    var kcEl = document.getElementById("king-chain");
+    var kc = d.king_chain || [];
+    if (kc.length === 0) {
+        kcEl.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:16px">No reigns yet</td></tr>';
+    } else {
+        var kcWeights = {};
+        (d.king_chain_weights || []).forEach(function(w) { kcWeights[w.hotkey] = w; });
+        kcEl.innerHTML = kc.map(function(e, i) {
+            var w = kcWeights[e.hotkey] || {};
+            var weightVal = e.weight != null ? e.weight : w.weight;
+            var alphaVal = e.alpha_per_hour != null ? e.alpha_per_hour : w.alpha_per_hour;
+            var usdVal = e.usd_per_hour != null ? e.usd_per_hour : w.usd_per_hour;
+            var repo = e.model_repo || "--";
+            var repoLink = e.model_repo ? modelLink(e.model_repo, e.king_digest || e.model_digest, repo) : repo;
+            var hkLink = hotkeyCell(e.hotkey, e.coldkey);
+            var weightPct = (weightVal != null) ? (weightVal * 100).toFixed(1) + "%" : "--";
+            var alphaHr = (alphaVal != null) ? alphaVal.toFixed(3) : "--";
+            var usdHr = (usdVal != null) ? "$" + usdVal.toFixed(2) : "--";
+            var crowned = e.crowned_at ? e.crowned_at.slice(0, 16).replace("T", " ") + "Z" : "--";
+            return '<tr>' +
+                '<td>' + (i + 1) + '</td>' +
+                '<td>#' + (e.reign_number != null ? e.reign_number : "--") + '</td>' +
+                '<td>' + (e.uid != null ? e.uid : "--") + '</td>' +
+                '<td>' + hkLink + '</td>' +
+                '<td>' + repoLink + '</td>' +
+                '<td>' + weightPct + '</td>' +
+                '<td>' + alphaHr + '</td>' +
+                '<td>' + usdHr + '</td>' +
+                '<td>' + crowned + '</td>' +
+                '</tr>';
+        }).join("");
+    }
+
+    // --- Queue ---
+    var qEl = document.getElementById("queue");
+    var q = d.queue || [];
+    if (q.length === 0) {
+        qEl.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:16px">Queue empty</td></tr>';
+    } else {
+        qEl.innerHTML = q.map(function(e) {
+            var repo = e.model_repo || "--";
+            var repoLink = e.model_repo ? modelLink(e.model_repo, e.king_digest || e.model_digest, repo) : repo;
+            var uid = e.uid != null ? e.uid : "--";
+            return '<tr>' +
+                '<td>' + uid + '</td>' +
+                '<td>' + repoLink + '</td>' +
+                '<td>' + hotkeyCell(e.hotkey, e.coldkey) + '</td>' +
+                '<td>' + (e.block ? '#' + e.block : '--') + '</td>' +
+                '<td>' + (e.reeval ? 'SEEN' : 'UNSEEN') + '</td>' +
+                '</tr>';
+        }).join("");
+    }
+
+    // --- History (duel results) ---
+    var hb = document.getElementById("hist");
+    var history = d.history || [];
+    if (history.length === 0) {
+        hb.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:16px">No duels yet</td></tr>';
+    } else {
+        hb.innerHTML = history.map(function(h) {
+            var isErr = h.verdict === "error";
+            var kl = h.avg_king_loss || 0;
+            var cl = h.avg_challenger_loss || 0;
+            var repo = modelRepo(h) || "--";
+            var repoLink = modelRepo(h) ? modelLink(modelRepo(h), modelDigest(h), repo) : repo;
+            var uid = h.uid != null ? h.uid : "--";
+
+            var verdictCell;
+            if (isErr) {
+                var errInfo = ERROR_MESSAGES[h.error_code];
+                var tip;
+                if (errInfo) {
+                    tip = errInfo.title + ": " + errInfo.message(h.error_detail || "");
+                } else {
+                    tip = (h.error_code || "error") + (h.error_detail ? ": " + h.error_detail : "");
+                }
+                tip = tip.replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+                var label = errInfo ? errInfo.title.toUpperCase() : "ERROR";
+                verdictCell = '<td title="' + tip + '" style="color:#c22;cursor:help">' + label + '</td>';
+            } else {
+                verdictCell = '<td>' + (h.accepted ? "CHALLENGER" : "KING") + '</td>';
+            }
+
+            var ago = timeAgo(h.timestamp);
+            var fullTs = h.timestamp ? new Date(h.timestamp).toUTCString() : "";
+            if (!isErr && h.wall_time_s) ago += " (" + h.wall_time_s.toFixed(0) + "s)";
+
+            return '<tr>' +
+                '<td>' + uid + '</td>' +
+                '<td>' + repoLink + '</td>' +
+                '<td>' + hotkeyCell(h.hotkey, h.coldkey) + '</td>' +
+                verdictCell +
+                '<td>' + (isErr ? "--" : (h.mu_hat || 0).toFixed(6)) + '</td>' +
+                '<td>' + (isErr ? "--" : (h.lcb || 0).toFixed(6)) + '</td>' +
+                '<td>' + (isErr ? "--" : kl.toFixed(4)) + '</td>' +
+                '<td>' + (isErr ? "--" : cl.toFixed(4)) + '</td>' +
+                '<td title="' + fullTs + '">' + ago + '</td>' +
+                '</tr>';
+        }).join("");
+    }
+}
+
+function loadCachedEndpoint() {
+    try {
+        var raw = localStorage.getItem(ENDPOINT_CACHE_KEY);
+        if (!raw) return null;
+        var rec = JSON.parse(raw);
+        if (!rec || !rec.url || !rec.ts) return null;
+        if (DATA_ENDPOINTS.indexOf(rec.url) === -1) return null;
+        if (Date.now() - rec.ts > ENDPOINT_CACHE_TTL_MS) return null;
+        return rec.url;
+    } catch (e) { return null; }
+}
+
+function saveCachedEndpoint(url) {
+    try {
+        localStorage.setItem(ENDPOINT_CACHE_KEY, JSON.stringify({ url: url, ts: Date.now() }));
+    } catch (e) {}
+}
+
+// Race all endpoints in parallel; first 2xx JSON response wins.
+// Returns { url, data } or throws if every endpoint fails.
+async function raceEndpoints(buster) {
+    var ctrls = DATA_ENDPOINTS.map(function() { return new AbortController(); });
+    var failures = 0;
+    return new Promise(function(resolve, reject) {
+        DATA_ENDPOINTS.forEach(function(url, i) {
+            fetch(url + "?t=" + buster, { signal: ctrls[i].signal })
+                .then(function(r) {
+                    if (!r.ok) throw new Error("HTTP " + r.status);
+                    return r.json().then(function(data) { return { url: url, data: data, idx: i }; });
+                })
+                .then(function(win) {
+                    for (var j = 0; j < ctrls.length; j++) if (j !== win.idx) ctrls[j].abort();
+                    resolve(win);
+                })
+                .catch(function(e) {
+                    failures++;
+                    if (failures === DATA_ENDPOINTS.length) reject(e);
+                });
+        });
+    });
+}
+
+async function poll() {
+    try {
+        var buster = Date.now();
+        if (DATA_URL) {
+            try {
+                var r = await fetch(DATA_URL + "?t=" + buster);
+                if (r.ok) { _lastData = await r.json(); render(_lastData); return; }
+                throw new Error("HTTP " + r.status);
+            } catch (e) {
+                // Fall through to a re-race so we recover from a downed endpoint.
+                DATA_URL = null;
+                try { localStorage.removeItem(ENDPOINT_CACHE_KEY); } catch (_) {}
+            }
+        }
+        var win = await raceEndpoints(buster);
+        DATA_URL = win.url;
+        saveCachedEndpoint(win.url);
+        _lastData = win.data;
+        render(_lastData);
+    } catch (e) {}
+}
+
+DATA_URL = loadCachedEndpoint();
+
+(function initToggle() {
+    var btn = document.getElementById("theme-toggle");
+    function updateLabel() {
+        btn.textContent = document.documentElement.dataset.theme === "dark" ? "LIGHT" : "DARK";
+    }
+    updateLabel();
+    btn.addEventListener("click", function() {
+        var isDark = document.documentElement.dataset.theme === "dark";
+        document.documentElement.dataset.theme = isDark ? "light" : "dark";
+        localStorage.setItem("theme", document.documentElement.dataset.theme);
+        updateLabel();
+        if (_lastData) render(_lastData);
+    });
+})();
+
+(function initChartToggle() {
+    document.getElementById("chart-mode-toggle").addEventListener("click", function() {
+        _chartMode = _chartMode === "ppl" ? "loss" : "ppl";
+        localStorage.setItem("chartMode", _chartMode);
+        if (_lastData) render(_lastData);
+    });
+
+    var scaleFocusToggle = document.getElementById("scale-focus-toggle");
+    function updateScaleFocusToggle() {
+        if (!scaleFocusToggle) return;
+        scaleFocusToggle.textContent = _chartScaleFocus === "challenger" ? "CHALLENGER SCALE" : "KING SCALE";
+        scaleFocusToggle.title = _chartScaleFocus === "challenger" ? "Y-axis is scaled to challenger; click for king scale" : "Y-axis is scaled to king; click for challenger scale";
+    }
+    if (scaleFocusToggle) {
+        updateScaleFocusToggle();
+        scaleFocusToggle.addEventListener("click", function() {
+            _chartScaleFocus = _chartScaleFocus === "king" ? "challenger" : "king";
+            localStorage.setItem("chartScaleFocus", _chartScaleFocus);
+            updateScaleFocusToggle();
+            if (_lastData) render(_lastData);
+        });
+    }
+})();
+
+(function initSmoothSlider() {
+    var smoothModeToggle = document.getElementById("smooth-mode-toggle");
+    function updateSmoothModeToggle() {
+        if (!smoothModeToggle) return;
+        smoothModeToggle.textContent = _smoothMode === "normal" ? "NORMAL" : "LOWESS";
+        smoothModeToggle.title = _smoothMode === "normal" ? "Normal EMA smoothing; click for LOWESS" : "LOWESS smoothing; click for normal EMA";
+    }
+    if (smoothModeToggle) {
+        updateSmoothModeToggle();
+        smoothModeToggle.addEventListener("click", function() {
+            _smoothMode = _smoothMode === "lowess" ? "normal" : "lowess";
+            localStorage.setItem("smoothMode", _smoothMode);
+            updateSmoothModeToggle();
+            if (_lastData) render(_lastData);
+        });
+    }
+
+    var slider = document.getElementById("smooth-slider");
+    var label = document.getElementById("smooth-val");
+    var saved = localStorage.getItem("smoothing");
+    if (saved != null) { slider.value = saved; }
+    function updateSmoothLabel() {
+        label.textContent = Number(slider.value).toFixed(2).replace(/0$/, "").replace(/\.$/, "");
+    }
+    updateSmoothLabel();
+    slider.addEventListener("input", function() {
+        updateSmoothLabel();
+        localStorage.setItem("smoothing", slider.value);
+        if (_lastData) render(_lastData);
+    });
+})();
+
+setDatasetManifestLink(DATASET_MANIFEST_URL);
+setDatasetSummary("loading manifest...");
+loadDatasetManifest().then(function(manifest) {
+    if (!manifest) setDatasetSummary("manifest link");
+});
+
+var benchHistoryToggle = document.getElementById("bench-history-toggle");
+if (benchHistoryToggle) {
+    benchHistoryToggle.addEventListener("click", function() {
+        _benchHistoryOpen = !_benchHistoryOpen;
+        localStorage.setItem("benchHistoryOpen", _benchHistoryOpen ? "1" : "0");
+        renderBenchmarkHistory();
+        if (_benchHistoryOpen && !_benchHistoryData) pollBenchmarkHistory();
+    });
+}
+
+var benchHistoryPanel = document.getElementById("bench-history");
+if (benchHistoryPanel) {
+    benchHistoryPanel.addEventListener("click", function(ev) {
+        var btn = ev.target && ev.target.closest ? ev.target.closest("[data-bench-page]") : null;
+        if (!btn || btn.disabled) return;
+        var direction = btn.getAttribute("data-bench-page");
+        _benchHistoryPage += direction === "next" ? 1 : -1;
+        localStorage.setItem("benchHistoryPage", String(_benchHistoryPage));
+        renderBenchmarkHistory();
+    });
+    benchHistoryPanel.addEventListener("change", function(ev) {
+        var select = ev.target && ev.target.matches && ev.target.matches("[data-bench-page-size]") ? ev.target : null;
+        if (!select) return;
+        _benchHistoryPageSize = Number(select.value) || 5;
+        _benchHistoryPage = 0;
+        localStorage.setItem("benchHistoryPageSize", String(_benchHistoryPageSize));
+        localStorage.setItem("benchHistoryPage", "0");
+        renderBenchmarkHistory();
+    });
+}
+
+poll();
+pollBenchmarks();
+pollBenchmarkHistory();
+setInterval(poll, POLL_MS);
+setInterval(function() { _lastBenchData = null; pollBenchmarks(); }, POLL_MS * 6);
+setInterval(function() { _benchHistoryData = null; pollBenchmarkHistory(); }, POLL_MS * 12);
+
+// Self-heal: long-lived tabs (especially mobile Safari bfcache) can keep an
+// old DOM forever. Periodically fetch the live index.html and reload if its
+// build id no longer matches what we booted with. Reloads only when the tab
+// is visible to avoid surprising background tabs mid-scroll.
+async function checkVersion() {
+    if (!BUILD_ID || BUILD_ID.indexOf("__") === 0) return;
+    var urls = HTML_ENDPOINTS.slice();
+    var buster = "?vcheck=" + Date.now();
+    for (var i = 0; i < urls.length; i++) {
+        try {
+            var r = await fetch(urls[i] + buster, { cache: "no-store" });
+            if (!r.ok) continue;
+            var text = await r.text();
+            var m = text.match(/<meta\s+name=["']build["']\s+content=["']([^"']+)["']/i);
+            if (!m) return;
+            var live = m[1];
+            if (live && live !== BUILD_ID && live.indexOf("__") !== 0) {
+                if (!document.hidden) {
+                    location.reload();
+                }
+            }
+            return;
+        } catch (e) {}
+    }
+}
+setInterval(checkVersion, VERSION_CHECK_MS);
+document.addEventListener("visibilitychange", function() {
+    if (!document.hidden) checkVersion();
+});
+</script>
+</body>
+</html>

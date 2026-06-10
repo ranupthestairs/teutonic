@@ -1,0 +1,44 @@
+# Teutonic Quasar — self-contained Quasar/Qwen3.5 snapshots.
+#
+# This chain uses Quasar checkpoints that carry their own config/custom code:
+#   configuration_qwen3_5.py
+#   modeling_qwen3_5.py
+#
+# The validator allows those files only through the Quasar custom-code policy:
+# auto_map must point to the exact local classes and the code files must match
+# the current king byte-for-byte.
+[chain]
+name = "teutonic"
+seed_repo = "dendrite/teutonic-x-genesis"
+repo_pattern = "^[^/]+/teutonic-.+$"
+
+[arch]
+module = "archs.quasar"
+# Generic structural keys are enforced by validator.py automatically. These
+# extra keys pin the Quasar/Qwen3.5-specific architecture surface visible in
+# model/teutonic-x/config.json
+extra_lock_keys = [
+  "attention_bias",
+  "attention_dropout",
+  "attn_output_gate",
+  "eos_token_id",
+  "full_attention_interval",
+  "linear_conv_kernel_dim",
+  "linear_key_head_dim",
+  "linear_num_key_heads",
+  "linear_num_value_heads",
+  "linear_value_head_dim",
+  "mamba_ssm_dtype",
+  "mlp_only_layers",
+  "mtp_num_hidden_layers",
+  "mtp_use_dedicated_embeddings",
+  "partial_rotary_factor",
+  "rms_norm_eps",
+  "rope_parameters",
+  "use_gla",
+  "use_nope",
+]
+[seed]
+tokenizer_repo = "silx-ai/Quasar-10B"
+repo_backend = "hippius"
+seed_digest = "sha256:51556b3b2d0b6ba211f192c9fd7eaa05d51b441bf3eac98c0fdc9489634fb9a5"
