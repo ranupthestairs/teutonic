@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 import argparse
+import ctypes
+import inspect
 import json
-import math
 import os
+import site
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 import torch
 from torch.utils.data import Dataset
@@ -14,6 +18,69 @@ from transformers import (
     TrainingArguments,
 )
 from peft import LoraConfig, get_peft_model
+
+
+def preload_cuda_runtime() -> None:
+    for site_dir in site.getsitepackages():
+        base = Path(site_dir) / "nvidia"
+        for cuda_runtime in base.glob("cuda_runtime/lib/libcudart.so*"):
+            try:
+                ctypes.CDLL(str(cuda_runtime), mode=ctypes.RTLD_GLOBAL)
+                print(f"preloaded CUDA runtime: {cuda_runtime}", flush=True)
+                return
+            except OSError:
+                continue
+
+
+def add_model_dir_to_pythonpath(model_dir: str) -> None:
+    resolved = str(Path(model_dir).resolve())
+    if resolved not in sys.path:
+        sys.path.insert(0, resolved)
+        print(f"added model dir to python path: {resolved}", flush=True)
+
+
+def patch_transformers_masking_utils() -> None:
+    try:
+        import transformers.masking_utils as masking_utils
+    except ImportError:
+        return
+
+    create_causal_mask = masking_utils.create_causal_mask
+    if "cache_position" in inspect.signature(create_causal_mask).parameters:
+        return
+
+    def create_causal_mask_compat(*args, cache_position=None, **kwargs):
+        past_key_values = kwargs.get("past_key_values")
+        original_get_mask_sizes = getattr(past_key_values, "get_mask_sizes", None)
+        if cache_position is not None and original_get_mask_sizes is not None:
+            def get_mask_sizes_compat(q_length_or_cache_position, layer_idx):
+                if hasattr(q_length_or_cache_position, "shape"):
+                    return original_get_mask_sizes(q_length_or_cache_position, layer_idx)
+                return original_get_mask_sizes(cache_position, layer_idx)
+
+            past_key_values.get_mask_sizes = get_mask_sizes_compat
+        try:
+            return create_causal_mask(*args, **kwargs)
+        finally:
+            if original_get_mask_sizes is not None:
+                past_key_values.get_mask_sizes = original_get_mask_sizes
+
+    masking_utils.create_causal_mask = create_causal_mask_compat
+    print("patched transformers.masking_utils.create_causal_mask compatibility", flush=True)
+
+
+def load_tokenizer_optional(base_model: str):
+    for use_fast in (True, False):
+        try:
+            return AutoTokenizer.from_pretrained(
+                base_model,
+                use_fast=use_fast,
+                trust_remote_code=True,
+            )
+        except Exception as exc:
+            print(f"tokenizer load failed use_fast={use_fast}: {exc}", flush=True)
+    print("continuing without tokenizer; token-id training does not require one", flush=True)
+    return None
 
 
 class TokenIdsDataset(Dataset):
@@ -72,11 +139,16 @@ def main():
                     help="comma-separated module name suffixes; defaults to a Quasar-aware set")
     args = ap.parse_args()
 
-    tokenizer = AutoTokenizer.from_pretrained(args.base_model, use_fast=True)
+    preload_cuda_runtime()
+    add_model_dir_to_pythonpath(args.base_model)
+    patch_transformers_masking_utils()
+
+    tokenizer = load_tokenizer_optional(args.base_model)
     model = AutoModelForCausalLM.from_pretrained(
         args.base_model,
         torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
         use_safetensors=True,
+        trust_remote_code=True,
     )
     model.config.use_cache = False
 
@@ -140,7 +212,8 @@ def main():
 
     trainer.train()
     trainer.save_model(os.path.join(args.output_dir, "best_adapter"))
-    tokenizer.save_pretrained(os.path.join(args.output_dir, "best_adapter"))
+    if tokenizer is not None:
+        tokenizer.save_pretrained(os.path.join(args.output_dir, "best_adapter"))
 
 
 if __name__ == "__main__":

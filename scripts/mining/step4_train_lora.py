@@ -13,7 +13,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--work", default="/root/teutonic-mining/work",
                     help="Pipeline work directory")
-    ap.add_argument("--king-dir", default="",
+    ap.add_argument("--king-dir", default="/root/teutonic-mining/work/king",
                     help="King model dir; defaults to king_dir in <work>/king.json or <work>/king")
     ap.add_argument("--bundle", default="/root/teutonic-mining/bundle",
                     help="Path to training_bundle directory")
