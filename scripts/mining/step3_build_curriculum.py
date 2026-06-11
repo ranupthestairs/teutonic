@@ -11,14 +11,16 @@ from train_challenger import log
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--work", default="/root/teutonic-mining/work",
+    ap.add_argument("--work", default="/workspace/teutonic-mining/work",
                     help="Pipeline work directory")
     ap.add_argument("--scored", default="",
                     help="Scored sample JSONL; defaults to <work>/scored_samples.jsonl")
     ap.add_argument("--out-dir", default="",
                     help="Curriculum output dir; defaults to <work>/curriculum")
-    ap.add_argument("--train-per-iter", type=int, default=4000)
-    ap.add_argument("--val-size", type=int, default=400)
+    ap.add_argument("--train-per-iter", type=int, default=20000,
+                    help="Training sequences to keep after bucketing")
+    ap.add_argument("--val-size", type=int, default=2000,
+                    help="Validation sequences to keep after bucketing")
     ap.add_argument("--seed", type=int, default=42)
     args = ap.parse_args()
 

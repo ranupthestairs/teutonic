@@ -1,12 +1,14 @@
 """Shared helpers for stepwise Teutonic challenger training scripts."""
 from __future__ import annotations
 
+import collections
 import json
 import shutil
 import ctypes
 import inspect
 import site
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -15,7 +17,11 @@ from hippius_hub import snapshot_download
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from train_challenger import (
+    allocate_weighted_counts,
     compute_per_seq_loss,
+    EVAL_ALPHA,
+    EVAL_DELTA,
+    filter_indices_by_vocab,
     log,
     sha256_dir,
 )
@@ -142,16 +148,38 @@ def score_samples(
     seed: int,
     device: str,
     out_path: Path,
+    shard_records: list[dict] | None = None,
 ) -> dict:
+    if shard_records is not None and len(shard_records) != len(shards):
+        raise ValueError("shard_records length must match shards length")
+
     rng = np.random.default_rng(seed)
     cands = []
-    for s_idx, shard in enumerate(shards):
-        if len(shard) == 0:
-            continue
-        n_take = max((n_score * 2) // max(len(shards), 1), 32)
-        idxs = rng.choice(len(shard), size=min(n_take, len(shard)), replace=False)
-        for j in idxs:
-            cands.append((s_idx, int(j)))
+    dataset_targets: dict[str, int] = {}
+    dataset_to_shards: dict[str, list[int]] = collections.defaultdict(list)
+    if shard_records and any("target_samples" in record for record in shard_records):
+        for s_idx, record in enumerate(shard_records):
+            dataset = record.get("dataset", str(s_idx))
+            dataset_to_shards[dataset].append(s_idx)
+            dataset_targets[dataset] = int(record.get("target_samples", n_score))
+        for dataset, shard_idxs in dataset_to_shards.items():
+            target = dataset_targets[dataset]
+            n_take = max((target * 2) // max(len(shard_idxs), 1), 32)
+            for s_idx in shard_idxs:
+                shard = shards[s_idx]
+                if len(shard) == 0:
+                    continue
+                idxs = rng.choice(len(shard), size=min(n_take, len(shard)), replace=False)
+                for j in idxs:
+                    cands.append((s_idx, int(j)))
+    else:
+        for s_idx, shard in enumerate(shards):
+            if len(shard) == 0:
+                continue
+            n_take = max((n_score * 2) // max(len(shards), 1), 32)
+            idxs = rng.choice(len(shard), size=min(n_take, len(shard)), replace=False)
+            for j in idxs:
+                cands.append((s_idx, int(j)))
     rng.shuffle(cands)
 
     log.info("scoring %d samples with king on %s", len(cands), device)
@@ -166,14 +194,23 @@ def score_samples(
     vocab_size = getattr(model.config, "vocab_size", None) or model.lm_head.out_features
 
     valid_cands = []
+    valid_by_dataset: dict[str, int] = collections.defaultdict(int)
     invalid_count = 0
     for s_idx, j in cands:
         tokens = shards[s_idx][j]
         if int(tokens.min()) < 0 or int(tokens.max()) >= vocab_size:
             invalid_count += 1
             continue
+        if dataset_targets:
+            dataset = shard_records[s_idx].get("dataset", str(s_idx)) if shard_records else str(s_idx)
+            if valid_by_dataset[dataset] >= dataset_targets[dataset]:
+                continue
+            valid_by_dataset[dataset] += 1
         valid_cands.append((s_idx, j))
-        if len(valid_cands) >= n_score:
+        if dataset_targets:
+            if all(valid_by_dataset[d] >= target for d, target in dataset_targets.items()):
+                break
+        elif len(valid_cands) >= n_score:
             break
     cands = valid_cands
     if invalid_count:
@@ -197,8 +234,9 @@ def score_samples(
                 rep_r = float(np.mean(arr[1:] == arr[:-1])) if len(arr) > 1 else 0.0
                 ngrams = [tuple(tok[k:k + 4]) for k in range(len(tok) - 3)]
                 rep_ng = 1.0 - len(set(ngrams)) / len(ngrams) if ngrams else 0.0
+                shard_meta = shard_records[s_idx] if shard_records else {}
                 losses.append(float(loss))
-                f.write(json.dumps({
+                row = {
                     "shard": s_idx,
                     "idx": j,
                     "loss": float(loss),
@@ -206,12 +244,40 @@ def score_samples(
                     "rep_r": rep_r,
                     "rep_ng4": rep_ng,
                     "tokens": tok,
-                }) + "\n")
+                }
+                for key in (
+                    "dataset",
+                    "dataset_weight",
+                    "target_samples",
+                    "manifest_url",
+                    "manifest_tokenizer",
+                    "shard_idx",
+                    "shard_key",
+                    "path",
+                    "source_file",
+                ):
+                    if key in shard_meta:
+                        row[key] = shard_meta[key]
+                f.write(json.dumps(row) + "\n")
             if (i // batch_size) % 20 == 0:
                 log.info("scored %d/%d samples", min(i + batch_size, len(cands)), len(cands))
 
     del model
     torch.cuda.empty_cache()
+
+    by_dataset: dict[str, dict] = {}
+    if shard_records:
+        dataset_losses: dict[str, list[float]] = collections.defaultdict(list)
+        for row in jsonl_rows(out_path):
+            dataset_losses[row.get("dataset", "unknown")].append(float(row["loss"]))
+        for dataset, values in sorted(dataset_losses.items()):
+            arr = np.asarray(values, dtype=np.float64)
+            by_dataset[dataset] = {
+                "n_scored": int(arr.size),
+                "loss_min": float(arr.min()) if arr.size else None,
+                "loss_max": float(arr.max()) if arr.size else None,
+                "loss_mean": float(arr.mean()) if arr.size else None,
+            }
 
     summary = {
         "n_scored": len(losses),
@@ -220,6 +286,8 @@ def score_samples(
         "loss_mean": float(np.mean(losses)) if losses else None,
         "scored_path": str(out_path),
     }
+    if by_dataset:
+        summary["datasets"] = by_dataset
     log.info("wrote scored samples -> %s", out_path)
     return summary
 
@@ -232,6 +300,29 @@ def bucket_for_row(row: dict, p50: float, p85: float) -> str:
     if row["loss"] >= p50 * 0.8:
         return "general"
     return "easy"
+
+
+def _sample_rows(rng: np.random.Generator, src: list[dict], n: int) -> list[dict]:
+    if not src or n <= 0:
+        return []
+    if n >= len(src):
+        return list(src)
+    selected = rng.choice(len(src), size=n, replace=False)
+    return [src[int(k)] for k in selected]
+
+
+def _select_bucket_mix(pool: list[dict], n_total: int, rng: np.random.Generator) -> list[dict]:
+    general = [r for r in pool if r["bucket"] == "general"]
+    hard = [r for r in pool if r["bucket"] == "hard"]
+    easy = [r for r in pool if r["bucket"] == "easy"]
+    n_general = int(n_total * 0.6)
+    n_hard = int(n_total * 0.3)
+    n_easy = n_total - n_general - n_hard
+    rows: list[dict] = []
+    rows.extend(_sample_rows(rng, general, n_general))
+    rows.extend(_sample_rows(rng, hard, n_hard))
+    rows.extend(_sample_rows(rng, easy, n_easy))
+    return rows
 
 
 def build_curriculum(
@@ -256,27 +347,46 @@ def build_curriculum(
     clean = [r for r in rows if r["bucket"] != "suspicious"]
 
     rng = np.random.default_rng(seed + 1)
-    rng.shuffle(clean)
-    val_rows = clean[:val_size]
-    val_keys = {(r["shard"], r["idx"]) for r in val_rows}
-    pool = [r for r in clean if (r["shard"], r["idx"]) not in val_keys]
+    dataset_weights: dict[str, float] = {}
+    for row in clean:
+        dataset = row.get("dataset")
+        if dataset and dataset not in dataset_weights and "dataset_weight" in row:
+            dataset_weights[dataset] = float(row["dataset_weight"])
 
-    general = [r for r in pool if r["bucket"] == "general"]
-    hard = [r for r in pool if r["bucket"] == "hard"]
-    easy = [r for r in pool if r["bucket"] == "easy"]
-    n_general = int(train_per_iter * 0.6)
-    n_hard = int(train_per_iter * 0.3)
-    n_easy = train_per_iter - n_general - n_hard
+    def row_key(row: dict) -> tuple:
+        return (
+            row.get("dataset", ""),
+            row.get("shard_key", row.get("shard", "")),
+            row["idx"],
+        )
 
-    train_rows = []
-    for src, n in ((general, n_general), (hard, n_hard), (easy, n_easy)):
-        if not src:
-            continue
-        if n >= len(src):
-            train_rows.extend(src)
-        else:
-            selected = rng.choice(len(src), size=n, replace=False)
-            train_rows.extend(src[int(k)] for k in selected)
+    if dataset_weights:
+        ordered = sorted(dataset_weights)
+        weights = [dataset_weights[dataset] for dataset in ordered]
+        clean_by_dataset: dict[str, list[dict]] = collections.defaultdict(list)
+        for row in clean:
+            clean_by_dataset[row.get("dataset", "unknown")].append(row)
+        for rows in clean_by_dataset.values():
+            rng.shuffle(rows)
+
+        val_alloc = allocate_weighted_counts(val_size, weights)
+        val_rows = []
+        for dataset, n_val in zip(ordered, val_alloc):
+            val_rows.extend(clean_by_dataset[dataset][:n_val])
+        val_keys = {row_key(r) for r in val_rows}
+        pool = [r for r in clean if row_key(r) not in val_keys]
+
+        train_alloc = allocate_weighted_counts(train_per_iter, weights)
+        train_rows = []
+        for dataset, n_train in zip(ordered, train_alloc):
+            ds_pool = [r for r in pool if r.get("dataset") == dataset]
+            train_rows.extend(_select_bucket_mix(ds_pool, n_train, rng))
+    else:
+        rng.shuffle(clean)
+        val_rows = clean[:val_size]
+        val_keys = {row_key(r) for r in val_rows}
+        pool = [r for r in clean if row_key(r) not in val_keys]
+        train_rows = _select_bucket_mix(pool, train_per_iter, rng)
     rng.shuffle(train_rows)
 
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -296,6 +406,15 @@ def build_curriculum(
 
     summary = {
         "counts": counts,
+        "datasets": {
+            dataset: {
+                "total": sum(1 for r in rows if r.get("dataset", "unknown") == dataset),
+                "clean": sum(1 for r in clean if r.get("dataset", "unknown") == dataset),
+                "train": sum(1 for r in train_rows if r.get("dataset", "unknown") == dataset),
+                "val": sum(1 for r in val_rows if r.get("dataset", "unknown") == dataset),
+            }
+            for dataset in sorted({r.get("dataset", "unknown") for r in rows})
+        },
         "p50": p50,
         "p85": p85,
         "train": len(train_rows),
@@ -308,6 +427,134 @@ def build_curriculum(
     log.info("wrote curriculum train=%d val=%d -> %s",
              len(train_rows), len(val_rows), out_dir)
     return summary
+
+
+def paired_eval_datasets(
+    king_dir: str,
+    chall_dir: str,
+    eval_sets: list[dict],
+    device: str,
+    batch_size: int = 8,
+    n_bootstrap: int = 10000,
+    alpha: float = EVAL_ALPHA,
+) -> dict:
+    """Run one paired bootstrap over samples drawn from multiple datasets."""
+    delta = EVAL_DELTA
+    preload_cuda_runtime()
+    add_model_dir_to_pythonpath(king_dir)
+    add_model_dir_to_pythonpath(chall_dir)
+    patch_transformers_masking_utils()
+    log.info("paired_eval_datasets: loading king %s on %s", king_dir, device)
+    king = AutoModelForCausalLM.from_pretrained(
+        king_dir, torch_dtype=torch.bfloat16, device_map={"": device},
+        use_safetensors=True, trust_remote_code=True,
+    )
+    king.eval()
+    log.info("paired_eval_datasets: loading challenger %s on %s", chall_dir, device)
+    chall = AutoModelForCausalLM.from_pretrained(
+        chall_dir, torch_dtype=torch.bfloat16, device_map={"": device},
+        use_safetensors=True, trust_remote_code=True,
+    )
+    chall.eval()
+
+    king_vocab_size = getattr(king.config, "vocab_size", None) or king.lm_head.out_features
+    chall_vocab_size = getattr(chall.config, "vocab_size", None) or chall.lm_head.out_features
+    vocab_size = min(int(king_vocab_size), int(chall_vocab_size))
+
+    diffs = []
+    per_dataset: dict[str, dict] = {}
+    king_sum = chall_sum = 0.0
+    n_done = 0
+    requested_total = 0
+    dropped_total = 0
+    t0 = time.time()
+
+    for eval_set in eval_sets:
+        dataset = eval_set["dataset"]
+        shard = eval_set["shard"]
+        indices = list(eval_set["indices"])
+        requested_total += len(indices)
+        indices, dropped = filter_indices_by_vocab(shard, indices, vocab_size)
+        dropped_total += dropped
+        if dropped:
+            log.info(
+                "dropped %d/%d %s eval sequences outside vocab_size=%d",
+                dropped,
+                len(eval_set["indices"]),
+                dataset,
+                vocab_size,
+            )
+        ds_diffs = []
+        ds_king_sum = ds_chall_sum = 0.0
+        for i in range(0, len(indices), batch_size):
+            batch_idx = indices[i:i + batch_size]
+            toks = [shard[j].tolist() for j in batch_idx]
+            kl = compute_per_seq_loss(king, toks, device)
+            cl = compute_per_seq_loss(chall, toks, device)
+            for k, c in zip(kl, cl):
+                diff = k - c
+                diffs.append(diff)
+                ds_diffs.append(diff)
+                king_sum += k
+                chall_sum += c
+                ds_king_sum += k
+                ds_chall_sum += c
+                n_done += 1
+            if n_done and (n_done // batch_size) % 5 == 0:
+                log.info(
+                    "eval %d/%d | mu_hat=%.6f | king=%.4f chall=%.4f | %.1fs",
+                    n_done,
+                    requested_total,
+                    float(np.mean(diffs)),
+                    king_sum / n_done,
+                    chall_sum / n_done,
+                    time.time() - t0,
+                )
+
+        ds_n = len(ds_diffs)
+        per_dataset[dataset] = {
+            "n_eval": ds_n,
+            "n_eval_requested": len(eval_set["indices"]),
+            "n_eval_dropped_vocab": dropped,
+            "avg_king_loss": ds_king_sum / ds_n if ds_n else None,
+            "avg_chall_loss": ds_chall_sum / ds_n if ds_n else None,
+            "mu_hat": float(np.mean(ds_diffs)) if ds_diffs else None,
+            "manifest_url": eval_set.get("manifest_url"),
+            "shard_key": eval_set.get("shard_key"),
+            "target_samples": eval_set.get("target_samples"),
+            "weight": eval_set.get("weight"),
+        }
+
+    if not diffs:
+        raise ValueError(f"no eval sequences fit vocab_size={vocab_size}")
+
+    diffs_arr = np.asarray(diffs, dtype=np.float64)
+    mu_hat = float(diffs_arr.mean())
+    boot = np.empty(n_bootstrap)
+    rng = np.random.default_rng(0xB007)
+    for b in range(n_bootstrap):
+        boot[b] = diffs_arr[rng.integers(0, len(diffs_arr), size=len(diffs_arr))].mean()
+    lcb = float(np.quantile(boot, alpha))
+    accepted = lcb > delta
+    res = {
+        "n_eval": n_done,
+        "mu_hat": mu_hat,
+        "lcb": lcb,
+        "delta": delta,
+        "alpha": alpha,
+        "accepted": accepted,
+        "avg_king_loss": king_sum / n_done,
+        "avg_chall_loss": chall_sum / n_done,
+        "n_eval_requested": requested_total,
+        "n_eval_dropped_vocab": dropped_total,
+        "datasets": per_dataset,
+        "elapsed_s": time.time() - t0,
+    }
+    log.info("paired_eval_datasets: mu_hat=%.6f lcb=%.6f accepted=%s",
+             mu_hat, lcb, accepted)
+    del king, chall
+    torch.cuda.empty_cache()
+    return res
 
 
 def merge_lora_local(base_model: str, adapter: Path, out: Path) -> Path:

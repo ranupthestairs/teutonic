@@ -1,16 +1,26 @@
 #!/usr/bin/env python3
-"""Step 2: pull training shards and score sample sequences with the king."""
+"""Step 2: pull weighted multi-dataset shards and score samples with the king."""
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import random
 from pathlib import Path
 from urllib.parse import urlparse
 
 from huggingface_hub import snapshot_download
 
 from challenger_step_lib import read_json, score_samples, write_json
-from train_challenger import download_shard, fetch_manifest, load_shard, log, sha256_dir
+from train_challenger import (
+    DEFAULT_DATASETS,
+    allocate_weighted_counts,
+    download_shard,
+    fetch_manifest_url,
+    load_shard,
+    log,
+    sha256_dir,
+)
 
 
 DEFAULT_KING_URL = (
@@ -158,19 +168,123 @@ def resolve_king_dir(
     return king_dir, meta
 
 
+def load_dataset_specs(datasets_config: str) -> list[dict]:
+    if not datasets_config:
+        return [dict(spec) for spec in DEFAULT_DATASETS]
+    path = Path(datasets_config)
+    data = json.loads(path.read_text()) if path.exists() else json.loads(datasets_config)
+    if isinstance(data, dict):
+        data = data.get("datasets", data.get("items", []))
+    if not isinstance(data, list) or not data:
+        raise ValueError("datasets config must be a non-empty list")
+    return data
+
+
+def select_shard_indices(
+    n_shards: int,
+    n_manifest_shards: int,
+    seed: int,
+    random_shards: bool,
+    shard_start: int,
+) -> list[int]:
+    if n_manifest_shards <= 0:
+        raise ValueError("manifest has no shards")
+    if n_shards > n_manifest_shards:
+        raise ValueError(
+            f"requested {n_shards} shards, but manifest only has {n_manifest_shards}"
+        )
+    if random_shards:
+        return sorted(random.Random(seed).sample(range(n_manifest_shards), n_shards))
+    end = shard_start + n_shards
+    if end > n_manifest_shards:
+        raise ValueError(
+            f"requested shard range [{shard_start}, {end}) exceeds manifest size "
+            f"{n_manifest_shards}"
+        )
+    return list(range(shard_start, end))
+
+
+def load_weighted_dataset_shards(
+    work: Path,
+    datasets: list[dict],
+    sample_counts: dict[str, int],
+    n_shards_per_dataset: int,
+    seed: int,
+    random_shards: bool,
+    shard_start: int,
+) -> tuple[list, list[dict]]:
+    shards = []
+    shard_records = []
+    shard_idx = 0
+
+    for spec_idx, spec in enumerate(datasets):
+        name = spec["name"]
+        manifest_url = spec["manifest_url"]
+        weight = float(spec["weight"])
+        target_samples = int(sample_counts[name])
+        dataset_cache = work / "cache" / "datasets" / name
+        manifest = fetch_manifest_url(dataset_cache, manifest_url)
+        shard_indices = select_shard_indices(
+            n_shards_per_dataset,
+            len(manifest["shards"]),
+            seed + spec_idx,
+            random_shards,
+            shard_start,
+        )
+        log.info(
+            "dataset %s: weight=%.2f target_samples=%d shards=%s tokenizer=%s",
+            name,
+            weight,
+            target_samples,
+            shard_indices,
+            manifest.get("tokenizer"),
+        )
+
+        for manifest_shard_idx in shard_indices:
+            shard_info = manifest["shards"][manifest_shard_idx]
+            key = shard_info["key"]
+            path = dataset_cache / "shards" / Path(key).name
+            download_shard(key, path, manifest=manifest)
+            arr, _ = load_shard(path)
+            log.info(
+                "loaded dataset %s shard %d: %d sequences",
+                name,
+                manifest_shard_idx,
+                len(arr),
+            )
+            shards.append(arr)
+            shard_records.append({
+                "dataset": name,
+                "dataset_weight": weight,
+                "target_samples": target_samples,
+                "manifest_url": manifest_url,
+                "manifest_tokenizer": manifest.get("tokenizer"),
+                "shard_idx": manifest_shard_idx,
+                "shard_key": key,
+                "path": str(path),
+                "source_file": shard_info.get("source_file"),
+            })
+            shard_idx += 1
+
+    return shards, shard_records
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--work", default="/root/teutonic-mining/work",
+    ap.add_argument("--work", default="/workspace/teutonic-mining/work",
                     help="Pipeline work directory")
-    ap.add_argument("--king-dir", default="",
+    ap.add_argument("--king-dir", default="/workspace/teutonic-mining/work/king",
                     help="King model dir; defaults to king_dir in <work>/king.json or <work>/king")
-    ap.add_argument("--n-shards", type=int, default=2,
-                    help="Number of training dataset shards to download")
+    ap.add_argument("--datasets-config", default="",
+                    help="Optional JSON file/list overriding DEFAULT_DATASETS")
+    ap.add_argument("--n-shards-per-dataset", type=int, default=1,
+                    help="Number of shards to download per dataset manifest")
     ap.add_argument("--shard-start", type=int, default=0,
-                    help="Index of first training shard")
-    ap.add_argument("--eval-shard", type=int, default=10,
-                    help="Reserved held-out shard index; must not overlap training shards")
-    ap.add_argument("--n-score", type=int, default=4000)
+                    help="Index of first shard when not using --random-shards")
+    ap.add_argument("--random-shards", action="store_true",
+                    help="Randomly sample shards per dataset with --seed")
+    ap.add_argument("--n-score", type=int, default=20000,
+                    help="Total sequences to score across all datasets")
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--device", default="cuda:0")
     ap.add_argument("--model-url", default=DEFAULT_KING_URL,
@@ -190,8 +304,7 @@ def main() -> None:
     args = ap.parse_args()
 
     work = Path(args.work)
-    cache = work / "cache"
-    cache.mkdir(parents=True, exist_ok=True)
+    work.mkdir(parents=True, exist_ok=True)
     scored_out = Path(args.scored_out) if args.scored_out else work / "scored_samples.jsonl"
     summary_out = Path(args.summary_out) if args.summary_out else work / "score_summary.json"
 
@@ -205,30 +318,42 @@ def main() -> None:
         args.download_workers,
     )
 
-    train_shard_idxs = list(range(args.shard_start, args.shard_start + args.n_shards))
-    if args.eval_shard in train_shard_idxs:
-        raise ValueError("eval_shard cannot overlap training shards")
+    datasets = load_dataset_specs(args.datasets_config)
+    weights = [float(spec["weight"]) for spec in datasets]
+    counts = allocate_weighted_counts(args.n_score, weights)
+    sample_counts = {
+        spec["name"]: count
+        for spec, count in zip(datasets, counts)
+    }
+    log.info("sample allocation across datasets: %s", sample_counts)
 
-    manifest = fetch_manifest(cache)
-    shards = []
-    shard_records = []
-    for idx in train_shard_idxs:
-        key = manifest["shards"][idx]["key"]
-        path = cache / Path(key).name
-        download_shard(key, path)
-        arr, _ = load_shard(path)
-        log.info("loaded training shard %d: %d sequences", idx, len(arr))
-        shards.append(arr)
-        shard_records.append({"idx": idx, "key": key, "path": str(path), "n_sequences": len(arr)})
+    shards, shard_records = load_weighted_dataset_shards(
+        work,
+        datasets,
+        sample_counts,
+        args.n_shards_per_dataset,
+        args.seed,
+        args.random_shards,
+        args.shard_start,
+    )
 
-    summary = score_samples(str(king_dir), shards, args.n_score, args.seed, args.device, scored_out)
+    summary = score_samples(
+        str(king_dir),
+        shards,
+        args.n_score,
+        args.seed,
+        args.device,
+        scored_out,
+        shard_records=shard_records,
+    )
     summary.update({
         "king_dir": str(king_dir),
         "king_repo": king_meta.get("king_repo"),
         "king_revision": king_meta.get("king_revision"),
         "king_hash": king_meta.get("king_hash"),
+        "datasets_config": datasets,
+        "sample_counts": sample_counts,
         "train_shards": shard_records,
-        "eval_shard": args.eval_shard,
         "seed": args.seed,
     })
     write_json(summary_out, summary)

@@ -129,7 +129,7 @@ def main():
     ap.add_argument("--micro-batch-size", type=int, default=2)
     ap.add_argument("--grad-accum", type=int, default=8)
     ap.add_argument("--learning-rate", type=float, default=2e-4)
-    ap.add_argument("--epochs", type=float, default=1.0)
+    ap.add_argument("--epochs", type=float, default=3.0)
     ap.add_argument("--warmup-ratio", type=float, default=0.02)
     ap.add_argument("--weight-decay", type=float, default=0.01)
     ap.add_argument("--lora-r", type=int, default=16)
@@ -137,6 +137,8 @@ def main():
     ap.add_argument("--lora-dropout", type=float, default=0.05)
     ap.add_argument("--lora-target-modules", type=str, default=None,
                     help="comma-separated module name suffixes; defaults to a Quasar-aware set")
+    ap.add_argument("--save-total-limit", type=int, default=0,
+                    help="Max checkpoints to retain (0 = keep all)")
     args = ap.parse_args()
 
     preload_cuda_runtime()
@@ -189,9 +191,9 @@ def main():
         lr_scheduler_type="cosine",
         logging_steps=10,
         eval_strategy="steps",
-        eval_steps=100,
-        save_steps=100,
-        save_total_limit=2,
+        eval_steps=50,
+        save_steps=50,
+        save_total_limit=args.save_total_limit or None,
         bf16=torch.cuda.is_available(),
         fp16=False,
         gradient_checkpointing=True,

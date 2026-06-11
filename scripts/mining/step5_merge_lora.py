@@ -11,9 +11,9 @@ from train_challenger import log, sha256_dir
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--work", default="/root/teutonic-mining/work",
+    ap.add_argument("--work", default="/workspace/teutonic-mining/work",
                     help="Pipeline work directory")
-    ap.add_argument("--king-dir", default="/workspace/teutonic-mining/work/king",
+    ap.add_argument("--king-dir", default="",
                     help="King model dir; defaults to king_dir in <work>/king.json or <work>/king")
     ap.add_argument("--adapter-dir", default="",
                     help="Adapter dir; defaults to adapter_dir in <work>/adapter.json")

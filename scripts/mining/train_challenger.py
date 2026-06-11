@@ -58,6 +58,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 
 import numpy as np
 import torch
@@ -97,7 +98,29 @@ DASHBOARD_URL = os.environ.get(
     "https://us-east-1.hippius.com/teutonic-sn3/dashboard.json",
 )
 HIPPIUS_BASE = "https://s3.hippius.com/teutonic-sn3"
-
+FINEWEBEDU_MANIFEST_URL = "https://eu-central-1.hippius.com/teutonic-sn3/dataset/finewebedu/manifest.json"
+DEFAULT_DATASETS = [
+    {
+        "name": "automathtext-v2",
+        "manifest_url": "https://eu-central-1.hippius.com/teutonic-sn3/dataset/automathtext-v2-quasar-10b/manifest.json",
+        "weight": 0.35,
+    },
+    {
+        "name": "quasar-sn3",
+        "manifest_url": "https://us-east-1.hippius.com/teutonic-sn3/dataset/quasar-sn3-retok/manifest.json",
+        "weight": 0.05,
+    },
+    {
+        "name": "ultradata-math",
+        "manifest_url": "https://us-east-1.hippius.com/teutonic-sn3/dataset/ultradata-math-quasar-10b/manifest.json",
+        "weight": 0.35,
+    },
+    {
+        "name": "finewebedu",
+        "manifest_url": FINEWEBEDU_MANIFEST_URL,
+        "weight": 0.25,
+    },
+]
 
 def preload_cuda_runtime() -> None:
     """Make Python-packaged CUDA runtimes visible to custom model extensions."""
@@ -187,11 +210,58 @@ def load_shard(path: Path, seq_len: int = SEQ_LEN) -> tuple[np.ndarray, int]:
     return arr, seq_len
 
 
-def download_shard(shard_key: str, out: Path) -> Path:
+def hippius_root_from_manifest_url(manifest_url: str) -> str:
+    parsed = urlparse(manifest_url)
+    parts = [part for part in parsed.path.strip("/").split("/") if part]
+    if not parts:
+        raise ValueError(f"invalid manifest url: {manifest_url}")
+    return f"{parsed.scheme}://{parsed.netloc}/{parts[0]}"
+
+
+def allocate_weighted_counts(total: int, weights: list[float]) -> list[int]:
+    if not weights:
+        raise ValueError("weights cannot be empty")
+    if total < 0:
+        raise ValueError("total must be non-negative")
+    if abs(sum(weights) - 1.0) > 1e-6:
+        raise ValueError(f"weights must sum to 1.0, got {sum(weights)}")
+    raw = [total * weight for weight in weights]
+    counts = [int(value) for value in raw]
+    remainder = total - sum(counts)
+    if remainder:
+        order = sorted(
+            range(len(weights)),
+            key=lambda idx: raw[idx] - counts[idx],
+            reverse=True,
+        )
+        for idx in order[:remainder]:
+            counts[idx] += 1
+    return counts
+
+
+def fetch_manifest_url(cache_dir: Path, manifest_url: str) -> dict:
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = cache_dir / "manifest.json"
+    if not manifest_path.exists():
+        log.info("downloading manifest from %s", manifest_url)
+        subprocess.check_call(["curl", "-fsSL", "-o", str(manifest_path), manifest_url])
+    manifest = json.loads(manifest_path.read_text())
+    manifest["_manifest_url"] = manifest_url
+    manifest["_hippius_root"] = hippius_root_from_manifest_url(manifest_url)
+    return manifest
+
+
+def download_shard(shard_key: str, out: Path, manifest: dict | None = None) -> Path:
     if out.exists() and out.stat().st_size > 1024:
         log.info("shard cached: %s (%.1f GB)", out, out.stat().st_size / 1e9)
         return out
-    url = f"{HIPPIUS_BASE}/{shard_key}"
+    if manifest is not None:
+        root = manifest.get("_hippius_root") or hippius_root_from_manifest_url(
+            manifest["_manifest_url"]
+        )
+    else:
+        root = HIPPIUS_BASE
+    url = f"{root}/{shard_key}"
     log.info("downloading %s -> %s", url, out)
     out.parent.mkdir(parents=True, exist_ok=True)
     subprocess.check_call(["curl", "-fsSL", "-o", str(out), url])
@@ -199,13 +269,7 @@ def download_shard(shard_key: str, out: Path) -> Path:
 
 
 def fetch_manifest(cache: Path) -> dict:
-    p = cache / "manifest.json"
-    if not p.exists():
-        url = f"{HIPPIUS_BASE}/dataset/v2/manifest.json"
-        log.info("downloading manifest from %s", url)
-        cache.mkdir(parents=True, exist_ok=True)
-        subprocess.check_call(["curl", "-fsSL", "-o", str(p), url])
-    return json.loads(p.read_text())
+    return fetch_manifest_url(cache, FINEWEBEDU_MANIFEST_URL)
 
 
 # ---------------------------------------------------------------------------
@@ -503,6 +567,7 @@ def run_lora_training(base_model: str, train_p: Path, val_p: Path,
         "--lora-r", str(args.lora_r),
         "--lora-alpha", str(args.lora_alpha),
         "--lora-dropout", "0.05",
+        "--save-total-limit", str(getattr(args, "save_total_limit", 0)),
     ]
     log.info("training: %s", " ".join(cmd))
     t0 = time.time()

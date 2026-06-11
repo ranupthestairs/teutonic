@@ -21,15 +21,17 @@ def main() -> None:
                     help="Train JSONL; defaults to <work>/curriculum/train.jsonl")
     ap.add_argument("--val-data", default="",
                     help="Validation JSONL; defaults to <work>/curriculum/val.jsonl")
-    ap.add_argument("--output-dir", default="",
+    ap.add_argument("--output-dir", default="/workspace/teutonic-mining/work/lora_out1",
                     help="LoRA output dir; defaults to <work>/lora_out")
     ap.add_argument("--n-gpus", type=int, default=1)
-    ap.add_argument("--micro-batch", type=int, default=2)
-    ap.add_argument("--grad-accum", type=int, default=8)
-    ap.add_argument("--lr", type=float, default=2e-4)
-    ap.add_argument("--epochs", type=float, default=1.0)
+    ap.add_argument("--micro-batch", type=int, default=4)
+    ap.add_argument("--grad-accum", type=int, default=2)
+    ap.add_argument("--lr", type=float, default=1e-4)
+    ap.add_argument("--epochs", type=float, default=3.0)
     ap.add_argument("--lora-r", type=int, default=16)
     ap.add_argument("--lora-alpha", type=int, default=32)
+    ap.add_argument("--save-total-limit", type=int, default=0,
+                    help="Max checkpoints to retain (0 = keep all)")
     ap.add_argument("--metadata-out", default="",
                     help="Adapter metadata JSON; defaults to <work>/adapter.json")
     args = ap.parse_args()
