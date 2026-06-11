@@ -39,8 +39,10 @@ REQUIRED — coldkey prefix in --upload-repo (since 2026-04-29):
 from __future__ import annotations
 
 import argparse
+import ctypes
 import dataclasses
 import hashlib
+import inspect
 import io
 import json
 import logging
@@ -50,6 +52,7 @@ import os
 os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "1")
 
 import shutil
+import site
 import struct
 import subprocess
 import sys
@@ -94,6 +97,59 @@ DASHBOARD_URL = os.environ.get(
     "https://us-east-1.hippius.com/teutonic-sn3/dashboard.json",
 )
 HIPPIUS_BASE = "https://s3.hippius.com/teutonic-sn3"
+
+
+def preload_cuda_runtime() -> None:
+    """Make Python-packaged CUDA runtimes visible to custom model extensions."""
+    candidates = []
+    for site_dir in site.getsitepackages():
+        candidates.extend((Path(site_dir) / "nvidia").glob("cuda_runtime/lib/libcudart.so*"))
+    for cuda_runtime in candidates:
+        try:
+            ctypes.CDLL(str(cuda_runtime), mode=ctypes.RTLD_GLOBAL)
+            log.info("preloaded CUDA runtime: %s", cuda_runtime)
+            return
+        except OSError:
+            continue
+
+
+def add_model_dir_to_pythonpath(model_dir: str | Path) -> None:
+    """Support custom model files that import sibling files as top-level modules."""
+    resolved = str(Path(model_dir).resolve())
+    if resolved not in sys.path:
+        sys.path.insert(0, resolved)
+        log.info("added model dir to python path: %s", resolved)
+
+
+def patch_transformers_masking_utils() -> None:
+    """Bridge Quasar custom code to the installed Transformers mask helper."""
+    try:
+        import transformers.masking_utils as masking_utils
+    except ImportError:
+        return
+
+    create_causal_mask = masking_utils.create_causal_mask
+    if "cache_position" in inspect.signature(create_causal_mask).parameters:
+        return
+
+    def create_causal_mask_compat(*args, cache_position=None, **kwargs):
+        past_key_values = kwargs.get("past_key_values")
+        original_get_mask_sizes = getattr(past_key_values, "get_mask_sizes", None)
+        if cache_position is not None and original_get_mask_sizes is not None:
+            def get_mask_sizes_compat(q_length_or_cache_position, layer_idx):
+                if hasattr(q_length_or_cache_position, "shape"):
+                    return original_get_mask_sizes(q_length_or_cache_position, layer_idx)
+                return original_get_mask_sizes(cache_position, layer_idx)
+
+            past_key_values.get_mask_sizes = get_mask_sizes_compat
+        try:
+            return create_causal_mask(*args, **kwargs)
+        finally:
+            if original_get_mask_sizes is not None:
+                past_key_values.get_mask_sizes = original_get_mask_sizes
+
+    masking_utils.create_causal_mask = create_causal_mask_compat
+    log.info("patched transformers.masking_utils.create_causal_mask compatibility")
 
 
 # ---------------------------------------------------------------------------
@@ -211,6 +267,19 @@ def compute_per_seq_loss(model, token_batches, device, chunk=LM_HEAD_CHUNK):
     return (total / n_pos).cpu().tolist()
 
 
+def filter_indices_by_vocab(shard: np.ndarray, indices: list[int], vocab_size: int) -> tuple[list[int], int]:
+    """Keep only sequences whose token IDs fit the model vocabulary."""
+    valid = []
+    dropped = 0
+    for idx in indices:
+        tokens = shard[idx]
+        if int(tokens.min()) < 0 or int(tokens.max()) >= vocab_size:
+            dropped += 1
+            continue
+        valid.append(idx)
+    return valid, dropped
+
+
 def paired_eval(king_dir: str, chall_dir: str, shard: np.ndarray,
                 indices: list[int], device: str, batch_size: int = 8,
                 n_bootstrap: int = 10000, alpha: float = EVAL_ALPHA) -> dict:
@@ -220,18 +289,33 @@ def paired_eval(king_dir: str, chall_dir: str, shard: np.ndarray,
     the validator's restored fixed-effect-floor rule.
     """
     delta = EVAL_DELTA
+    preload_cuda_runtime()
+    add_model_dir_to_pythonpath(king_dir)
+    add_model_dir_to_pythonpath(chall_dir)
+    patch_transformers_masking_utils()
     log.info("paired_eval: loading king %s on %s", king_dir, device)
     king = AutoModelForCausalLM.from_pretrained(
         king_dir, torch_dtype=torch.bfloat16, device_map={"": device},
-        use_safetensors=True,
+        use_safetensors=True, trust_remote_code=True,
     )
     king.eval()
     log.info("paired_eval: loading challenger %s on %s", chall_dir, device)
     chall = AutoModelForCausalLM.from_pretrained(
         chall_dir, torch_dtype=torch.bfloat16, device_map={"": device},
-        use_safetensors=True,
+        use_safetensors=True, trust_remote_code=True,
     )
     chall.eval()
+
+    king_vocab_size = getattr(king.config, "vocab_size", None) or king.lm_head.out_features
+    chall_vocab_size = getattr(chall.config, "vocab_size", None) or chall.lm_head.out_features
+    vocab_size = min(int(king_vocab_size), int(chall_vocab_size))
+    requested_eval = len(indices)
+    indices, dropped_for_vocab = filter_indices_by_vocab(shard, indices, vocab_size)
+    if dropped_for_vocab:
+        log.info("dropped %d/%d eval sequences with token ids outside vocab_size=%d",
+                 dropped_for_vocab, requested_eval, vocab_size)
+    if not indices:
+        raise ValueError(f"no eval sequences fit vocab_size={vocab_size}")
 
     diffs = []
     king_sum = chall_sum = 0.0
@@ -270,6 +354,8 @@ def paired_eval(king_dir: str, chall_dir: str, shard: np.ndarray,
         "accepted": accepted,
         "avg_king_loss": king_sum / n_done,
         "avg_chall_loss": chall_sum / n_done,
+        "n_eval_requested": requested_eval,
+        "n_eval_dropped_vocab": dropped_for_vocab,
         "elapsed_s": time.time() - t0,
     }
     log.info("paired_eval: mu_hat=%.6f lcb=%.6f accepted=%s",
@@ -298,9 +384,12 @@ def score_and_curate(king_dir: str, shards: list[np.ndarray],
     rng.shuffle(cands)
 
     log.info("scoring %d samples with king on %s", len(cands), device)
+    preload_cuda_runtime()
+    add_model_dir_to_pythonpath(king_dir)
+    patch_transformers_masking_utils()
     model = AutoModelForCausalLM.from_pretrained(
         king_dir, torch_dtype=torch.bfloat16, device_map={"": device},
-        use_safetensors=True,
+        use_safetensors=True, trust_remote_code=True,
     )
     model.eval()
 
@@ -434,19 +523,34 @@ def run_lora_training(base_model: str, train_p: Path, val_p: Path,
 def merge_lora(base_model: str, adapter: Path, out: Path) -> Path:
     log.info("merging LoRA %s into %s -> %s", adapter, base_model, out)
     from peft import PeftModel
+
+    preload_cuda_runtime()
+    add_model_dir_to_pythonpath(base_model)
+    patch_transformers_masking_utils()
     base = AutoModelForCausalLM.from_pretrained(
-        base_model, torch_dtype=torch.bfloat16, use_safetensors=True,
+        base_model,
+        torch_dtype=torch.bfloat16,
+        use_safetensors=True,
+        trust_remote_code=True,
     )
     merged = PeftModel.from_pretrained(base, str(adapter)).merge_and_unload()
     out.mkdir(parents=True, exist_ok=True)
     merged.save_pretrained(str(out), safe_serialization=True)
-    tok = AutoTokenizer.from_pretrained(base_model, use_fast=True)
-    tok.save_pretrained(str(out))
-    # Copy config files for parity with king
-    for name in ("config.json",):
-        src = Path(snapshot_download(base_model, allow_patterns=[name])) / name
-        if src.exists():
-            shutil.copy(src, out / name)
+    try:
+        tok = AutoTokenizer.from_pretrained(
+            base_model,
+            use_fast=True,
+            trust_remote_code=True,
+        )
+        tok.save_pretrained(str(out))
+    except Exception as exc:
+        log.warning("tokenizer save skipped: %s", exc)
+    # Copy config/code/tokenizer assets for parity with king.
+    for pattern in ("config.json", "generation_config.json", "*.py", "tokenizer*", "special_tokens*", "*.model"):
+        src_root = Path(base_model) if Path(base_model).exists() else Path(snapshot_download(base_model, allow_patterns=[pattern]))
+        for src in src_root.glob(pattern):
+            if src.is_file():
+                shutil.copy(src, out / src.name)
     del base, merged
     torch.cuda.empty_cache()
     log.info("merged model saved to %s", out)

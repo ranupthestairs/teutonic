@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import sys
 import time
 from pathlib import Path
 
@@ -77,17 +78,30 @@ def merge_lora_local(base_model: str, adapter: Path, out: Path) -> Path:
     log.info("merging LoRA %s into %s -> %s", adapter, base_model, out)
     from peft import PeftModel
 
+    resolved_base_model = str(Path(base_model).resolve())
+    if resolved_base_model not in sys.path:
+        sys.path.insert(0, resolved_base_model)
     base = AutoModelForCausalLM.from_pretrained(
-        base_model, torch_dtype=torch.bfloat16, use_safetensors=True,
+        base_model,
+        torch_dtype=torch.bfloat16,
+        use_safetensors=True,
+        trust_remote_code=True,
     )
     merged = PeftModel.from_pretrained(base, str(adapter)).merge_and_unload()
     out.mkdir(parents=True, exist_ok=True)
     merged.save_pretrained(str(out), safe_serialization=True)
-    tok = AutoTokenizer.from_pretrained(base_model, use_fast=True)
-    tok.save_pretrained(str(out))
+    try:
+        tok = AutoTokenizer.from_pretrained(
+            base_model,
+            use_fast=True,
+            trust_remote_code=True,
+        )
+        tok.save_pretrained(str(out))
+    except Exception as exc:
+        log.warning("tokenizer save skipped: %s", exc)
 
     # Preserve local Hippius snapshot config/code metadata without calling HF.
-    for pattern in ("config.json", "*.py"):
+    for pattern in ("config.json", "generation_config.json", "*.py", "tokenizer*", "special_tokens*", "*.model"):
         for src in Path(base_model).glob(pattern):
             if src.is_file():
                 shutil.copy(src, out / src.name)

@@ -53,7 +53,7 @@ def repo_from_hf_link(model: str) -> str:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--work", default="/root/teutonic-mining/work",
+    ap.add_argument("--work", default="/workspace/teutonic-mining/work",
                     help="Pipeline work directory")
     ap.add_argument("--king-dir", default="",
                     help="Output model directory; defaults to <work>/king")

@@ -11,11 +11,11 @@ from train_challenger import log, run_lora_training
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--work", default="/root/teutonic-mining/work",
+    ap.add_argument("--work", default="/workspace/teutonic-mining/work",
                     help="Pipeline work directory")
-    ap.add_argument("--king-dir", default="/root/teutonic-mining/work/king",
+    ap.add_argument("--king-dir", default="/workspace/teutonic-mining/work/king",
                     help="King model dir; defaults to king_dir in <work>/king.json or <work>/king")
-    ap.add_argument("--bundle", default="/root/teutonic-mining/bundle",
+    ap.add_argument("--bundle", default="/workspace/teutonic-mining/bundle",
                     help="Path to training_bundle directory")
     ap.add_argument("--train-data", default="",
                     help="Train JSONL; defaults to <work>/curriculum/train.jsonl")

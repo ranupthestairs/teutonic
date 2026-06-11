@@ -23,7 +23,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--work", default="/root/teutonic-mining/work",
                     help="Pipeline work directory")
-    ap.add_argument("--king-dir", default="",
+    ap.add_argument("--king-dir", default="/workspace/teutonic-mining/work/king",
                     help="King model dir; defaults to king_dir in <work>/king.json or <work>/king")
     ap.add_argument("--merged-dir", default="",
                     help="Merged model dir; defaults to merged_dir in <work>/merged.json")

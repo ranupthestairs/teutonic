@@ -314,16 +314,29 @@ def merge_lora_local(base_model: str, adapter: Path, out: Path) -> Path:
     log.info("merging LoRA %s into %s -> %s", adapter, base_model, out)
     from peft import PeftModel
 
+    preload_cuda_runtime()
+    add_model_dir_to_pythonpath(base_model)
+    patch_transformers_masking_utils()
     base = AutoModelForCausalLM.from_pretrained(
-        base_model, torch_dtype=torch.bfloat16, use_safetensors=True,
+        base_model,
+        torch_dtype=torch.bfloat16,
+        use_safetensors=True,
+        trust_remote_code=True,
     )
     merged = PeftModel.from_pretrained(base, str(adapter)).merge_and_unload()
     out.mkdir(parents=True, exist_ok=True)
     merged.save_pretrained(str(out), safe_serialization=True)
-    tok = AutoTokenizer.from_pretrained(base_model, use_fast=True)
-    tok.save_pretrained(str(out))
+    try:
+        tok = AutoTokenizer.from_pretrained(
+            base_model,
+            use_fast=True,
+            trust_remote_code=True,
+        )
+        tok.save_pretrained(str(out))
+    except Exception as exc:
+        log.warning("tokenizer save skipped: %s", exc)
 
-    for pattern in ("config.json", "*.py"):
+    for pattern in ("config.json", "generation_config.json", "*.py", "tokenizer*", "special_tokens*", "*.model"):
         for src in Path(base_model).glob(pattern):
             if src.is_file():
                 shutil.copy(src, out / src.name)
