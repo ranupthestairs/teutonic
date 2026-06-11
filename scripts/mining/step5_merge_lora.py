@@ -19,6 +19,9 @@ def main() -> None:
                     help="Adapter dir; defaults to adapter_dir in <work>/adapter.json")
     ap.add_argument("--merged-dir", default="",
                     help="Merged model output dir; defaults to <work>/merged")
+    ap.add_argument("--max-shard-size", default="4.3GB",
+                    help="Split model.safetensors into shards of at most this size "
+                         "(Transformers format, e.g. 4.3GB). Use empty string for a single file.")
     ap.add_argument("--metadata-out", default="",
                     help="Merge metadata JSON; defaults to <work>/merged.json")
     args = ap.parse_args()
@@ -38,7 +41,12 @@ def main() -> None:
     merged_dir = Path(args.merged_dir) if args.merged_dir else work / "merged"
     metadata_out = Path(args.metadata_out) if args.metadata_out else work / "merged.json"
 
-    merge_lora_local(str(king_dir), adapter_dir, merged_dir)
+    merge_lora_local(
+        str(king_dir),
+        adapter_dir,
+        merged_dir,
+        max_shard_size=args.max_shard_size,
+    )
     write_json(metadata_out, {
         "king_dir": str(king_dir),
         "adapter_dir": str(adapter_dir),

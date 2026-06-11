@@ -557,7 +557,12 @@ def paired_eval_datasets(
     return res
 
 
-def merge_lora_local(base_model: str, adapter: Path, out: Path) -> Path:
+def merge_lora_local(
+    base_model: str,
+    adapter: Path,
+    out: Path,
+    max_shard_size: str = "4.3GB",
+) -> Path:
     log.info("merging LoRA %s into %s -> %s", adapter, base_model, out)
     from peft import PeftModel
 
@@ -572,7 +577,11 @@ def merge_lora_local(base_model: str, adapter: Path, out: Path) -> Path:
     )
     merged = PeftModel.from_pretrained(base, str(adapter)).merge_and_unload()
     out.mkdir(parents=True, exist_ok=True)
-    merged.save_pretrained(str(out), safe_serialization=True)
+    save_kwargs = {"safe_serialization": True}
+    if max_shard_size:
+        save_kwargs["max_shard_size"] = max_shard_size
+        log.info("saving merged model with max_shard_size=%s", max_shard_size)
+    merged.save_pretrained(str(out), **save_kwargs)
     try:
         tok = AutoTokenizer.from_pretrained(
             base_model,
