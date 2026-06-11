@@ -3,6 +3,10 @@ from __future__ import annotations
 
 import json
 import shutil
+import ctypes
+import inspect
+import site
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -42,6 +46,60 @@ def jsonl_rows(path: str | Path):
         for line in f:
             if line.strip():
                 yield json.loads(line)
+
+
+def preload_cuda_runtime() -> None:
+    """Make Python-packaged CUDA runtimes visible to custom model extensions."""
+    candidates = []
+    for site_dir in site.getsitepackages():
+        base = Path(site_dir) / "nvidia"
+        candidates.extend(base.glob("cuda_runtime/lib/libcudart.so*"))
+    for cuda_runtime in candidates:
+        try:
+            ctypes.CDLL(str(cuda_runtime), mode=ctypes.RTLD_GLOBAL)
+            log.info("preloaded CUDA runtime: %s", cuda_runtime)
+            return
+        except OSError:
+            continue
+
+
+def add_model_dir_to_pythonpath(model_dir: str | Path) -> None:
+    """Support custom model files that import sibling files as top-level modules."""
+    resolved = str(Path(model_dir).resolve())
+    if resolved not in sys.path:
+        sys.path.insert(0, resolved)
+        log.info("added model dir to python path: %s", resolved)
+
+
+def patch_transformers_masking_utils() -> None:
+    """Bridge Quasar custom code to the installed Transformers mask helper."""
+    try:
+        import transformers.masking_utils as masking_utils
+    except ImportError:
+        return
+
+    create_causal_mask = masking_utils.create_causal_mask
+    if "cache_position" in inspect.signature(create_causal_mask).parameters:
+        return
+
+    def create_causal_mask_compat(*args, cache_position=None, **kwargs):
+        past_key_values = kwargs.get("past_key_values")
+        original_get_mask_sizes = getattr(past_key_values, "get_mask_sizes", None)
+        if cache_position is not None and original_get_mask_sizes is not None:
+            def get_mask_sizes_compat(q_length_or_cache_position, layer_idx):
+                if hasattr(q_length_or_cache_position, "shape"):
+                    return original_get_mask_sizes(q_length_or_cache_position, layer_idx)
+                return original_get_mask_sizes(cache_position, layer_idx)
+
+            past_key_values.get_mask_sizes = get_mask_sizes_compat
+        try:
+            return create_causal_mask(*args, **kwargs)
+        finally:
+            if original_get_mask_sizes is not None:
+                past_key_values.get_mask_sizes = original_get_mask_sizes
+
+    masking_utils.create_causal_mask = create_causal_mask_compat
+    log.info("patched transformers.masking_utils.create_causal_mask compatibility")
 
 
 def download_king_from_hippius(king: dict, out_dir: Path, max_workers: int) -> tuple[str, str]:
@@ -90,19 +148,40 @@ def score_samples(
     for s_idx, shard in enumerate(shards):
         if len(shard) == 0:
             continue
-        n_take = max(n_score // max(len(shards), 1), 32)
+        n_take = max((n_score * 2) // max(len(shards), 1), 32)
         idxs = rng.choice(len(shard), size=min(n_take, len(shard)), replace=False)
         for j in idxs:
             cands.append((s_idx, int(j)))
     rng.shuffle(cands)
-    cands = cands[:n_score]
 
     log.info("scoring %d samples with king on %s", len(cands), device)
+    preload_cuda_runtime()
+    add_model_dir_to_pythonpath(king_dir)
+    patch_transformers_masking_utils()
     model = AutoModelForCausalLM.from_pretrained(
         king_dir, torch_dtype=torch.bfloat16, device_map={"": device},
-        use_safetensors=True,
+        use_safetensors=True, trust_remote_code=True,
     )
     model.eval()
+    vocab_size = getattr(model.config, "vocab_size", None) or model.lm_head.out_features
+
+    valid_cands = []
+    invalid_count = 0
+    for s_idx, j in cands:
+        tokens = shards[s_idx][j]
+        if int(tokens.min()) < 0 or int(tokens.max()) >= vocab_size:
+            invalid_count += 1
+            continue
+        valid_cands.append((s_idx, j))
+        if len(valid_cands) >= n_score:
+            break
+    cands = valid_cands
+    if invalid_count:
+        log.info("dropped %d sampled sequences with token ids outside vocab_size=%d",
+                 invalid_count, vocab_size)
+    if len(cands) < n_score:
+        log.warning("only %d/%d sampled sequences fit vocab_size=%d",
+                    len(cands), n_score, vocab_size)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     losses = []
