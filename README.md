@@ -87,6 +87,56 @@ use [`scripts/mining/`](scripts/mining/) as a working harness.
   [`docs/OPTIMAL_DESIGN.md`](docs/OPTIMAL_DESIGN.md) — proposal docs, not the
   current production path.
 
+
+## RUNNING SCRIPT
+
+WORK=/workspace/teutonic-mining/work-stepwise
+
+python3 scripts/mining/step1_download_king.py \
+  --work "$WORK" \
+  --download-workers 1
+
+python scripts/mining/step1_1_download_king.py
+python3 scripts/mining/step1_2_download_king_hf.py
+
+uv pip install --python /workspace/teutonic/.venv/bin/python nvidia-cuda-runtime-cu12
+
+python3 scripts/mining/step2_score_samples.py \
+  --work "$WORK" \
+  --n-shards 2 \
+  --shard-start 0 \
+  --eval-shard 10 \
+  --n-score 4000 \
+  --seed 42
+  --
+
+python3 scripts/mining/step3_build_curriculum.py \
+  --work "$WORK" \
+  --train-per-iter 4000 \
+  --val-size 400 \
+  --seed 42
+
+python3 scripts/mining/step4_train_lora.py \
+  --work "$WORK" \
+  --bundle /workspace/teutonic-mining/bundle \
+  --n-gpus 1
+
+python3 scripts/mining/step4_train_lora.py \
+  --work "$WORK" \
+  --bundle /workspace/teutonic-mining/bundle \
+  --n-gpus 1 \
+  --micro-batch 1 \
+  --grad-accum 16
+
+python3 scripts/mining/step5_merge_lora.py \
+  --work "$WORK"
+
+python3 scripts/mining/step6_eval_verdict.py \
+  --work "$WORK" \
+  --eval-shard 10 \
+  --n-eval 2000
+
+
 ## License
 
 MIT.
