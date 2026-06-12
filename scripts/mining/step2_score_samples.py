@@ -273,7 +273,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--work", default="/workspace/teutonic-mining/work",
                     help="Pipeline work directory")
-    ap.add_argument("--king-dir", default="/workspace/teutonic-mining/work/king",
+    ap.add_argument("--king-dir", default="",
                     help="King model dir; defaults to king_dir in <work>/king.json or <work>/king")
     ap.add_argument("--datasets-config", default="",
                     help="Optional JSON file/list overriding DEFAULT_DATASETS")

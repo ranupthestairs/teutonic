@@ -311,12 +311,26 @@ def _sample_rows(rng: np.random.Generator, src: list[dict], n: int) -> list[dict
     return [src[int(k)] for k in selected]
 
 
+TRAIN_BUCKET_MIX = {
+    "general": 0.6,
+    "hard": 0.3,
+    "easy": 0.1,
+}
+
+
+def _bucket_counts(rows: list[dict]) -> dict[str, int]:
+    return {
+        bucket: sum(1 for row in rows if row.get("bucket") == bucket)
+        for bucket in ("general", "hard", "easy", "suspicious")
+    }
+
+
 def _select_bucket_mix(pool: list[dict], n_total: int, rng: np.random.Generator) -> list[dict]:
     general = [r for r in pool if r["bucket"] == "general"]
     hard = [r for r in pool if r["bucket"] == "hard"]
     easy = [r for r in pool if r["bucket"] == "easy"]
-    n_general = int(n_total * 0.6)
-    n_hard = int(n_total * 0.3)
+    n_general = int(n_total * TRAIN_BUCKET_MIX["general"])
+    n_hard = int(n_total * TRAIN_BUCKET_MIX["hard"])
     n_easy = n_total - n_general - n_hard
     rows: list[dict] = []
     rows.extend(_sample_rows(rng, general, n_general))
@@ -342,8 +356,7 @@ def build_curriculum(
     for row in rows:
         row["bucket"] = bucket_for_row(row, p50, p85)
 
-    counts = {b: sum(1 for r in rows if r["bucket"] == b)
-              for b in ("general", "hard", "easy", "suspicious")}
+    counts = _bucket_counts(rows)
     clean = [r for r in rows if r["bucket"] != "suspicious"]
 
     rng = np.random.default_rng(seed + 1)
@@ -366,8 +379,8 @@ def build_curriculum(
         clean_by_dataset: dict[str, list[dict]] = collections.defaultdict(list)
         for row in clean:
             clean_by_dataset[row.get("dataset", "unknown")].append(row)
-        for rows in clean_by_dataset.values():
-            rng.shuffle(rows)
+        for dataset_rows in clean_by_dataset.values():
+            rng.shuffle(dataset_rows)
 
         val_alloc = allocate_weighted_counts(val_size, weights)
         val_rows = []
@@ -404,14 +417,33 @@ def build_curriculum(
         for row in rows:
             f.write(json.dumps(row) + "\n")
 
+    def dataset_bucket_counts(dataset: str, src_rows: list[dict]) -> dict[str, int]:
+        return _bucket_counts([
+            row for row in src_rows
+            if row.get("dataset", "unknown") == dataset
+        ])
+
     summary = {
         "counts": counts,
+        "bucket_mix": TRAIN_BUCKET_MIX,
+        "bucket_counts": {
+            "scored": counts,
+            "clean": _bucket_counts(clean),
+            "train": _bucket_counts(train_rows),
+            "val": _bucket_counts(val_rows),
+        },
         "datasets": {
             dataset: {
                 "total": sum(1 for r in rows if r.get("dataset", "unknown") == dataset),
                 "clean": sum(1 for r in clean if r.get("dataset", "unknown") == dataset),
                 "train": sum(1 for r in train_rows if r.get("dataset", "unknown") == dataset),
                 "val": sum(1 for r in val_rows if r.get("dataset", "unknown") == dataset),
+                "bucket_counts": {
+                    "scored": dataset_bucket_counts(dataset, rows),
+                    "clean": dataset_bucket_counts(dataset, clean),
+                    "train": dataset_bucket_counts(dataset, train_rows),
+                    "val": dataset_bucket_counts(dataset, val_rows),
+                },
             }
             for dataset in sorted({r.get("dataset", "unknown") for r in rows})
         },
@@ -553,6 +585,137 @@ def paired_eval_datasets(
     log.info("paired_eval_datasets: mu_hat=%.6f lcb=%.6f accepted=%s",
              mu_hat, lcb, accepted)
     del king, chall
+    torch.cuda.empty_cache()
+    return res
+
+
+def paired_eval_lora_datasets(
+    king_dir: str,
+    adapter_dir: str,
+    eval_sets: list[dict],
+    device: str,
+    batch_size: int = 8,
+    n_bootstrap: int = 10000,
+    alpha: float = EVAL_ALPHA,
+) -> dict:
+    """Run paired eval for a LoRA adapter checkpoint without merging it first."""
+    from peft import PeftModel
+
+    delta = EVAL_DELTA
+    preload_cuda_runtime()
+    add_model_dir_to_pythonpath(king_dir)
+    patch_transformers_masking_utils()
+    log.info("paired_eval_lora_datasets: loading king %s on %s", king_dir, device)
+    king = AutoModelForCausalLM.from_pretrained(
+        king_dir, torch_dtype=torch.bfloat16, device_map={"": device},
+        use_safetensors=True, trust_remote_code=True,
+    )
+    king.eval()
+    log.info("paired_eval_lora_datasets: loading base %s + adapter %s on %s",
+             king_dir, adapter_dir, device)
+    base = AutoModelForCausalLM.from_pretrained(
+        king_dir, torch_dtype=torch.bfloat16, device_map={"": device},
+        use_safetensors=True, trust_remote_code=True,
+    )
+    chall = PeftModel.from_pretrained(base, adapter_dir)
+    chall.eval()
+
+    king_vocab_size = getattr(king.config, "vocab_size", None) or king.lm_head.out_features
+    chall_vocab_size = getattr(chall.config, "vocab_size", None) or chall.lm_head.out_features
+    vocab_size = min(int(king_vocab_size), int(chall_vocab_size))
+
+    diffs = []
+    per_dataset: dict[str, dict] = {}
+    king_sum = chall_sum = 0.0
+    n_done = 0
+    requested_total = 0
+    dropped_total = 0
+    t0 = time.time()
+
+    for eval_set in eval_sets:
+        dataset = eval_set["dataset"]
+        shard = eval_set["shard"]
+        indices = list(eval_set["indices"])
+        requested_total += len(indices)
+        indices, dropped = filter_indices_by_vocab(shard, indices, vocab_size)
+        dropped_total += dropped
+        if dropped:
+            log.info(
+                "dropped %d/%d %s eval sequences outside vocab_size=%d",
+                dropped,
+                len(eval_set["indices"]),
+                dataset,
+                vocab_size,
+            )
+        ds_diffs = []
+        ds_king_sum = ds_chall_sum = 0.0
+        for i in range(0, len(indices), batch_size):
+            batch_idx = indices[i:i + batch_size]
+            toks = [shard[j].tolist() for j in batch_idx]
+            kl = compute_per_seq_loss(king, toks, device)
+            cl = compute_per_seq_loss(chall, toks, device)
+            for k, c in zip(kl, cl):
+                diff = k - c
+                diffs.append(diff)
+                ds_diffs.append(diff)
+                king_sum += k
+                chall_sum += c
+                ds_king_sum += k
+                ds_chall_sum += c
+                n_done += 1
+            if n_done and (n_done // batch_size) % 5 == 0:
+                log.info(
+                    "eval %d/%d | mu_hat=%.6f | king=%.4f chall=%.4f | %.1fs",
+                    n_done,
+                    requested_total,
+                    float(np.mean(diffs)),
+                    king_sum / n_done,
+                    chall_sum / n_done,
+                    time.time() - t0,
+                )
+
+        ds_n = len(ds_diffs)
+        per_dataset[dataset] = {
+            "n_eval": ds_n,
+            "n_eval_requested": len(eval_set["indices"]),
+            "n_eval_dropped_vocab": dropped,
+            "avg_king_loss": ds_king_sum / ds_n if ds_n else None,
+            "avg_chall_loss": ds_chall_sum / ds_n if ds_n else None,
+            "mu_hat": float(np.mean(ds_diffs)) if ds_diffs else None,
+            "manifest_url": eval_set.get("manifest_url"),
+            "shard_key": eval_set.get("shard_key"),
+            "target_samples": eval_set.get("target_samples"),
+            "weight": eval_set.get("weight"),
+        }
+
+    if not diffs:
+        raise ValueError(f"no eval sequences fit vocab_size={vocab_size}")
+
+    diffs_arr = np.asarray(diffs, dtype=np.float64)
+    mu_hat = float(diffs_arr.mean())
+    boot = np.empty(n_bootstrap)
+    rng = np.random.default_rng(0xB007)
+    for b in range(n_bootstrap):
+        boot[b] = diffs_arr[rng.integers(0, len(diffs_arr), size=len(diffs_arr))].mean()
+    lcb = float(np.quantile(boot, alpha))
+    accepted = lcb > delta
+    res = {
+        "n_eval": n_done,
+        "mu_hat": mu_hat,
+        "lcb": lcb,
+        "delta": delta,
+        "alpha": alpha,
+        "accepted": accepted,
+        "avg_king_loss": king_sum / n_done,
+        "avg_chall_loss": chall_sum / n_done,
+        "n_eval_requested": requested_total,
+        "n_eval_dropped_vocab": dropped_total,
+        "datasets": per_dataset,
+        "elapsed_s": time.time() - t0,
+    }
+    log.info("paired_eval_lora_datasets: mu_hat=%.6f lcb=%.6f accepted=%s",
+             mu_hat, lcb, accepted)
+    del king, base, chall
     torch.cuda.empty_cache()
     return res
 

@@ -304,17 +304,27 @@ def sha256_dir(path: Path) -> str:
 # ---------------------------------------------------------------------------
 # Paired eval (mirrors eval_torch.compute_paired_losses + bootstrap)
 # ---------------------------------------------------------------------------
+def _eval_causal_lm(model):
+    """Resolve the inner CausalLM wrapper (PeftModel.model is the full LM, not the backbone)."""
+    if hasattr(model, "get_base_model"):
+        return model.get_base_model()
+    return model
+
+
 @torch.no_grad()
 def compute_per_seq_loss(model, token_batches, device, chunk=LM_HEAD_CHUNK):
     """Average per-token cross-entropy per sequence (matches eval_torch)."""
     input_ids = torch.tensor(token_batches, dtype=torch.long, device=device)
+    causal_lm = _eval_causal_lm(model)
     # Reset stateful arch (Quasar latent memory) before each batch — see
     # eval_torch.compute_paired_losses for rationale. No-op for stock HF archs.
-    if hasattr(model, "reset_state"):
+    if hasattr(causal_lm, "reset_state"):
+        causal_lm.reset_state()
+    elif hasattr(model, "reset_state"):
         model.reset_state()
-    out = model.model(input_ids)
+    out = causal_lm.model(input_ids)
     hidden = out.last_hidden_state
-    lm_head = model.lm_head
+    lm_head = causal_lm.lm_head
     n_pos = input_ids.size(1) - 1
     total = torch.zeros(len(token_batches), device=device)
     for i in range(0, n_pos, chunk):
@@ -511,8 +521,8 @@ def score_and_curate(king_dir: str, shards: list[np.ndarray],
     general = [r for r in pool if r["bucket"] == "general"]
     hard = [r for r in pool if r["bucket"] == "hard"]
     easy = [r for r in pool if r["bucket"] == "easy"]
-    n_general = int(train_per_iter * 0.6)
-    n_hard = int(train_per_iter * 0.3)
+    n_general = int(train_per_iter * 0.4)
+    n_hard = int(train_per_iter * 0.5)
     n_easy = train_per_iter - n_general - n_hard
 
     train_rows = []

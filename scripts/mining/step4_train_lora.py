@@ -13,7 +13,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--work", default="/workspace/teutonic-mining/work",
                     help="Pipeline work directory")
-    ap.add_argument("--king-dir", default="/workspace/teutonic-mining/work/king",
+    ap.add_argument("--king-dir", default="",
                     help="King model dir; defaults to king_dir in <work>/king.json or <work>/king")
     ap.add_argument("--bundle", default="/workspace/teutonic-mining/bundle",
                     help="Path to training_bundle directory")
@@ -21,15 +21,15 @@ def main() -> None:
                     help="Train JSONL; defaults to <work>/curriculum/train.jsonl")
     ap.add_argument("--val-data", default="",
                     help="Validation JSONL; defaults to <work>/curriculum/val.jsonl")
-    ap.add_argument("--output-dir", default="/workspace/teutonic-mining/work/lora_out1",
+    ap.add_argument("--output-dir", default="",
                     help="LoRA output dir; defaults to <work>/lora_out")
     ap.add_argument("--n-gpus", type=int, default=1)
-    ap.add_argument("--micro-batch", type=int, default=4)
-    ap.add_argument("--grad-accum", type=int, default=2)
-    ap.add_argument("--lr", type=float, default=1e-4)
-    ap.add_argument("--epochs", type=float, default=2.0)
-    ap.add_argument("--lora-r", type=int, default=16)
-    ap.add_argument("--lora-alpha", type=int, default=32)
+    ap.add_argument("--micro-batch", type=int, default=8)
+    ap.add_argument("--grad-accum", type=int, default=1)
+    ap.add_argument("--lr", type=float, default=5e-5)
+    ap.add_argument("--epochs", type=float, default=5.0)
+    ap.add_argument("--lora-r", type=int, default=32)
+    ap.add_argument("--lora-alpha", type=int, default=64)
     ap.add_argument("--save-total-limit", type=int, default=0,
                     help="Max checkpoints to retain (0 = keep all)")
     ap.add_argument("--metadata-out", default="",

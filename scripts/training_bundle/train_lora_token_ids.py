@@ -15,9 +15,47 @@ from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
     Trainer,
+    TrainerCallback,
     TrainingArguments,
 )
+from transformers.trainer_callback import PrinterCallback, ProgressCallback
 from peft import LoraConfig, get_peft_model
+
+
+def _format_log_value(key: str, value):
+    if isinstance(value, float):
+        if key == "eval_loss":
+            return f"{value:.5f}"
+        return f"{value:.4g}"
+    return value
+
+
+class PrecisionProgressCallback(ProgressCallback):
+    """Log through tqdm without breaking the progress bar; eval_loss uses 5 decimals."""
+
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        if not (state.is_world_process_zero and self.training_bar is not None and logs):
+            return
+        shallow_logs = {
+            key: _format_log_value(key, value)
+            for key, value in logs.items()
+        }
+        shallow_logs.pop("total_flos", None)
+        self.training_bar.write(str(shallow_logs))
+
+
+class PrecisionPrinterCallback(TrainerCallback):
+    """Fallback logger when tqdm is disabled."""
+
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        if logs is None or not state.is_local_process_zero:
+            return
+        formatted = {
+            key: _format_log_value(key, value)
+            for key, value in logs.items()
+        }
+        formatted.pop("total_flos", None)
+        print(formatted, flush=True)
 
 
 def preload_cuda_runtime() -> None:
@@ -191,8 +229,8 @@ def main():
         lr_scheduler_type="cosine",
         logging_steps=10,
         eval_strategy="steps",
-        eval_steps=50,
-        save_steps=50,
+        eval_steps=100,
+        save_steps=100,
         save_total_limit=args.save_total_limit or None,
         bf16=torch.cuda.is_available(),
         fp16=False,
@@ -211,6 +249,12 @@ def main():
         eval_dataset=val_ds,
         data_collator=Collator(),
     )
+    trainer.remove_callback(ProgressCallback)
+    trainer.remove_callback(PrinterCallback)
+    if training_args.disable_tqdm:
+        trainer.add_callback(PrecisionPrinterCallback())
+    else:
+        trainer.add_callback(PrecisionProgressCallback())
 
     trainer.train()
     trainer.save_model(os.path.join(args.output_dir, "best_adapter"))
